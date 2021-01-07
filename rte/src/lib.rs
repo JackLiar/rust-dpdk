@@ -7,12 +7,13 @@
     clippy::many_single_char_names
 )]
 
+extern crate anyhow;
+#[macro_use]
+extern crate thiserror;
 #[macro_use]
 extern crate log;
 #[macro_use]
 extern crate bitflags;
-#[macro_use]
-extern crate failure;
 #[macro_use]
 extern crate lazy_static;
 extern crate cfile;
@@ -55,7 +56,7 @@ pub mod ip;
 pub mod cmdline;
 
 pub use self::common::*;
-pub use self::errors::{ErrorKind, Result, RteError};
+pub use self::errors::{ErrorKind, RteError};
 pub use self::ethdev::PortId;
 pub use self::ethdev::QueueId;
 

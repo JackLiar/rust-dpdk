@@ -9,6 +9,7 @@ build = "build.rs"
 [features]
 default = []
 gen = ["bindgen"]
+static = []
 
 [lib]
 name = "rte_sys"

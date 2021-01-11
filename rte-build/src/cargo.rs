@@ -6,13 +6,14 @@ lazy_static! {
 }
 
 pub fn gen_cargo_config<S: AsRef<str>>(
+    link_kind: &str,
     lib_dirs: impl Iterator<Item = S>,
     include_dirs: impl Iterator<Item = S>,
     static_libs: impl Iterator<Item = S>,
     shared_libs: impl Iterator<Item = S>,
 ) {
     for lib in static_libs {
-        println!("cargo:rustc-link-lib={}", lib.as_ref());
+        println!("cargo:rustc-link-lib={}={}", link_kind, lib.as_ref());
     }
 
     for lib in shared_libs {

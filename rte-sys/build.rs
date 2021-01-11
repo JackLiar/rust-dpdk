@@ -21,7 +21,7 @@ fn gen_rte_binding<S: AsRef<str>>(rte_include_dir: impl Iterator<Item = S>, dest
 
     // let rte_sdk_inc_dir = rte_sdk_dir.join("include");
     let mut cflags: Vec<String> = vec![String::from("-march=native")];
-    for dir in rte_include_dir{
+    for dir in rte_include_dir {
         cflags.push(String::from("-I"));
         cflags.push(dir.as_ref().to_string());
     }
@@ -94,7 +94,10 @@ fn main() {
         .include("src")
         .compile("rte_stub");
 
+    let link_kind = if cfg!(feature = "static") { "static" } else { "dylib" };
+
     gen_cargo_config(
+        link_kind,
         RTE_LIB_DIR.iter(),
         RTE_INCLUDE_DIR.iter(),
         RTE_CORE_LIBS.iter().chain(RTE_PMD_LIBS.iter()),

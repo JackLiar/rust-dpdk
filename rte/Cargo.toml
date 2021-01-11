@@ -8,6 +8,7 @@ build = "build.rs"
 [features]
 default = []
 gen = ["rte-sys/gen"]
+static = ["rte-sys/static"]
 
 [dependencies]
 anyhow = "1.0"

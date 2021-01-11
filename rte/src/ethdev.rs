@@ -455,13 +455,7 @@ bitflags! {
 }
 
 /// A set of values to identify what method is to be used to route packets to multiple queues.
-bitflags! {
-    pub struct EthRxMultiQueueMode: u32 {
-        const ETH_MQ_RX_RSS_FLAG    = 0x1;
-        const ETH_MQ_RX_DCB_FLAG    = 0x2;
-        const ETH_MQ_RX_VMDQ_FLAG   = 0x4;
-    }
-}
+pub type EthRxMultiQueueMode = ffi::rte_eth_rx_mq_mode::Type;
 
 bitflags! {
     /// Definitions used for VLAN Offload functionality

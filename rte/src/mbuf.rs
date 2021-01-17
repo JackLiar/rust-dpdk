@@ -319,29 +319,29 @@ impl MBuf {
     /// Prefetch the first part of the mbuf
     #[inline]
     pub fn prefetch_part1(&self) {
-        unsafe { ffi::_rte_mbuf_prefetch_part1(self.as_raw()) }
+        unsafe { ffi::_rte_mbuf_prefetch_part1(self.as_raw_mut()) }
     }
 
     /// Prefetch the second part of the mbuf
     pub fn prefetch_part2(&self) {
-        unsafe { ffi::_rte_mbuf_prefetch_part2(self.as_raw()) }
+        unsafe { ffi::_rte_mbuf_prefetch_part2(self.as_raw_mut()) }
     }
 
     /// Return the mbuf owning the data buffer address of an indirect mbuf.
     pub fn from_indirect(other: &MBuf) -> Self {
-        unsafe { ffi::_rte_mbuf_from_indirect(other.as_raw()) }.into()
+        unsafe { ffi::_rte_mbuf_from_indirect(other.as_raw_mut()) }.into()
     }
 
     /// Return the buffer address embedded in the given mbuf.
     pub fn buf_addr(&self) -> NonNull<u8> {
-        NonNull::new(unsafe { ffi::_rte_mbuf_to_baddr(self.as_raw()) })
+        NonNull::new(unsafe { ffi::_rte_mbuf_to_baddr(self.as_raw_mut()) })
             .unwrap()
             .cast()
     }
 
     /// Return the starting address of the private data area embedded in the given mbuf.
     pub fn priv_addr(&self) -> NonNull<u8> {
-        NonNull::new(unsafe { ffi::_rte_mbuf_to_priv(self.as_raw()) })
+        NonNull::new(unsafe { ffi::_rte_mbuf_to_priv(self.as_raw_mut()) })
             .unwrap()
             .cast()
     }
@@ -389,7 +389,7 @@ impl MBuf {
 
     /// Free a segment of a packet mbuf into its original mempool.
     pub fn free_seg(&mut self) {
-        unsafe { ffi::_rte_pktmbuf_free_seg(self.as_raw()) }
+        unsafe { ffi::_rte_pktmbuf_free_seg(self.as_raw_mut()) }
     }
 
     /// Free a packet mbuf back into its original mempool.
@@ -397,7 +397,7 @@ impl MBuf {
     /// Free an mbuf, and all its segments in case of chained buffers.
     /// Each segment is added back into its original mempool.
     pub fn free(&mut self) {
-        unsafe { ffi::_rte_pktmbuf_free(self.as_raw()) }
+        unsafe { ffi::_rte_pktmbuf_free(self.as_raw_mut()) }
     }
 
     /// Put mbuf back into its original mempool.
@@ -407,7 +407,7 @@ impl MBuf {
         debug_assert!(self.next.is_null());
         debug_assert_eq!(self.nb_segs, 1);
 
-        unsafe { ffi::_rte_mbuf_raw_free(self.as_raw()) }
+        unsafe { ffi::_rte_mbuf_raw_free(self.as_raw_mut()) }
     }
 
     /// Reads the value of an mbuf's refcnt.
@@ -417,12 +417,12 @@ impl MBuf {
 
     /// Sets an mbuf's refcnt to a defined value.
     pub fn refcnt_set(&mut self, new: u16) {
-        unsafe { ffi::_rte_mbuf_refcnt_set(self.as_raw(), new) }
+        unsafe { ffi::_rte_mbuf_refcnt_set(self.as_raw_mut(), new) }
     }
 
     /// Adds given value to an mbuf's refcnt and returns its new value.
     pub fn refcnt_update(&mut self, new: i16) -> u16 {
-        unsafe { ffi::_rte_mbuf_refcnt_update(self.as_raw(), new) }
+        unsafe { ffi::_rte_mbuf_refcnt_update(self.as_raw_mut(), new) }
     }
 
     /// Sanity checks on an mbuf.
@@ -435,12 +435,12 @@ impl MBuf {
 
     /// Reset the data_off field of a packet mbuf to its default value.
     pub fn reset_headroom(&mut self) {
-        unsafe { ffi::_rte_pktmbuf_reset_headroom(self.as_raw()) }
+        unsafe { ffi::_rte_pktmbuf_reset_headroom(self.as_raw_mut()) }
     }
 
     /// Reset the fields of a packet mbuf to their default values.
     pub fn reset(&mut self) {
-        unsafe { ffi::_rte_pktmbuf_reset(self.as_raw()) }
+        unsafe { ffi::_rte_pktmbuf_reset(self.as_raw_mut()) }
     }
 
     /// Get the headroom in a packet mbuf.
@@ -455,7 +455,7 @@ impl MBuf {
 
     /// Get the last segment of the packet.
     pub fn lastseg(&self) -> Self {
-        unsafe { ffi::_rte_pktmbuf_lastseg(self.as_raw()) }.into()
+        unsafe { ffi::_rte_pktmbuf_lastseg(self.as_raw_mut()) }.into()
     }
 
     /// Get a pointer which points to an offset into the data in the mbuf.
@@ -510,28 +510,28 @@ impl MBuf {
 
     /// Prepend len bytes to an mbuf data area.
     pub fn prepend(&mut self, len: usize) -> Result<NonNull<u8>> {
-        unsafe { ffi::_rte_pktmbuf_prepend(self.as_raw(), len as u16) }
+        unsafe { ffi::_rte_pktmbuf_prepend(self.as_raw_mut(), len as u16) }
             .as_result()
             .map(|p| p.cast())
     }
 
     /// Append len bytes to an mbuf.
     pub fn append(&mut self, len: usize) -> Result<NonNull<u8>> {
-        unsafe { ffi::_rte_pktmbuf_append(self.as_raw(), len as u16) }
+        unsafe { ffi::_rte_pktmbuf_append(self.as_raw_mut(), len as u16) }
             .as_result()
             .map(|p| p.cast())
     }
 
     /// Remove len bytes at the beginning of an mbuf.
     pub fn adj(&mut self, len: usize) -> Result<NonNull<u8>> {
-        unsafe { ffi::_rte_pktmbuf_adj(self.as_raw(), len as u16) }
+        unsafe { ffi::_rte_pktmbuf_adj(self.as_raw_mut(), len as u16) }
             .as_result()
             .map(|p| p.cast())
     }
 
     /// Remove len bytes of data at the end of the mbuf.
     pub fn trim(&mut self, len: usize) -> Result<()> {
-        unsafe { ffi::_rte_pktmbuf_trim(self.as_raw(), len as u16) }
+        unsafe { ffi::_rte_pktmbuf_trim(self.as_raw_mut(), len as u16) }
             .as_result()
             .map(|_| ())
     }
@@ -554,7 +554,7 @@ impl MBuf {
 
     /// Chain an mbuf to another, thereby creating a segmented packet.
     pub fn chain(&self, tail: &Self) -> Result<()> {
-        unsafe { ffi::_rte_pktmbuf_chain(self.as_raw(), tail.as_raw()) }
+        unsafe { ffi::_rte_pktmbuf_chain(self.as_raw_mut(), tail.as_raw_mut()) }
             .as_result()
             .map(|_| ())
     }
@@ -573,7 +573,7 @@ impl MBuf {
     /// This function moves the mbuf data in the first segment if there is enough tailroom.
     /// The subsequent segments are unchained and freed.
     pub fn linearize(&self) -> Result<()> {
-        unsafe { ffi::_rte_pktmbuf_linearize(self.as_raw()) }
+        unsafe { ffi::_rte_pktmbuf_linearize(self.as_raw_mut()) }
             .as_result()
             .map(|_| ())
     }
@@ -639,12 +639,12 @@ impl ExtSharedInfo {
 
     /// Set refcnt of an external buffer.
     pub fn refcnt_set(&mut self, new: u16) {
-        unsafe { ffi::_rte_mbuf_ext_refcnt_set(self.as_raw(), new) }
+        unsafe { ffi::_rte_mbuf_ext_refcnt_set(self.as_raw_mut(), new) }
     }
 
     /// Add given value to refcnt of an external buffer and return its new value.
     pub fn refcnt_update(&mut self, new: i16) -> u16 {
-        unsafe { ffi::_rte_mbuf_ext_refcnt_update(self.as_raw(), new) }
+        unsafe { ffi::_rte_mbuf_ext_refcnt_update(self.as_raw_mut(), new) }
     }
 }
 
@@ -661,11 +661,11 @@ impl MBuf {
     pub fn attach_extbuf(&mut self, buf: &mut [u8], buf_iova: ffi::rte_iova_t, shinfo: &ExtSharedInfo) {
         unsafe {
             ffi::_rte_pktmbuf_attach_extbuf(
-                self.as_raw(),
+                self.as_raw_mut(),
                 buf.as_mut_ptr() as *mut _,
                 buf_iova,
                 buf.len() as u16,
-                shinfo.as_raw(),
+                shinfo.as_raw_mut(),
             )
         }
     }
@@ -677,12 +677,12 @@ impl MBuf {
 
     /// Attach packet mbuf to another packet mbuf.
     pub fn attach(&mut self, m: &MBuf) {
-        unsafe { ffi::_rte_pktmbuf_attach(self.as_raw(), m.as_raw()) }
+        unsafe { ffi::_rte_pktmbuf_attach(self.as_raw_mut(), m.as_raw_mut()) }
     }
 
     /// Detach a packet mbuf from external buffer or direct buffer.
     pub fn detach(&mut self) {
-        unsafe { ffi::_rte_pktmbuf_detach(self.as_raw()) }
+        unsafe { ffi::_rte_pktmbuf_detach(self.as_raw_mut()) }
     }
 }
 
@@ -705,25 +705,27 @@ pub trait MBufPool {
 
 impl MBufPool for mempool::MemoryPool {
     fn data_room_size(&self) -> usize {
-        unsafe { ffi::_rte_pktmbuf_data_room_size(self.as_raw()) as usize }
+        unsafe { ffi::_rte_pktmbuf_data_room_size(self.as_raw_mut()) as usize }
     }
 
     fn priv_size(&self) -> usize {
-        unsafe { ffi::_rte_pktmbuf_priv_size(self.as_raw()) as usize }
+        unsafe { ffi::_rte_pktmbuf_priv_size(self.as_raw_mut()) as usize }
     }
 
     fn alloc(&mut self) -> Result<MBuf> {
-        unsafe { ffi::_rte_pktmbuf_alloc(self.as_raw()) }.as_result().map(MBuf)
+        unsafe { ffi::_rte_pktmbuf_alloc(self.as_raw_mut()) }
+            .as_result()
+            .map(MBuf)
     }
 
     fn alloc_bulk(&mut self, mbufs: &mut [Option<MBuf>]) -> Result<()> {
-        unsafe { ffi::_rte_pktmbuf_alloc_bulk(self.as_raw(), mbufs.as_mut_ptr() as *mut _, mbufs.len() as u32) }
+        unsafe { ffi::_rte_pktmbuf_alloc_bulk(self.as_raw_mut(), mbufs.as_mut_ptr() as *mut _, mbufs.len() as u32) }
             .as_result()
             .map(|_| ())
     }
 
     fn clone(&mut self, mbuf: &MBuf) -> Result<MBuf> {
-        unsafe { ffi::_rte_pktmbuf_clone(mbuf.as_raw(), self.as_raw()) }
+        unsafe { ffi::_rte_pktmbuf_clone(mbuf.as_raw_mut(), self.as_raw_mut()) }
             .as_result()
             .map(MBuf)
     }

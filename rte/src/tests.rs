@@ -200,14 +200,14 @@ fn test_mempool() {
 
     assert_eq!(elements.len(), 4);
 
-    let raw_ptr = p.as_raw();
+    let raw_ptr = p.as_raw_mut();
 
     assert_eq!(raw_ptr, mempool::lookup("test").unwrap());
 
     let mut pools: Vec<mempool::RawMemoryPoolPtr> = Vec::new();
 
     fn walk_mempool(pool: &mempool::MemoryPool, pools: Option<&mut Vec<mempool::RawMemoryPoolPtr>>) {
-        pools.unwrap().push(pool.as_raw());
+        pools.unwrap().push(pool.as_raw_mut());
     }
 
     mempool::walk(walk_mempool, Some(&mut pools));

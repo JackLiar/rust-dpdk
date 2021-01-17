@@ -53,7 +53,11 @@ pub struct Keepalive(NonNull<RawKeepalive>);
 impl AsRaw for Keepalive {
     type Raw = RawKeepalive;
 
-    fn as_raw(&self) -> *mut Self::Raw {
+    fn as_raw(&self) -> *const Self::Raw {
+        self.0.as_ptr()
+    }
+
+    fn as_raw_mut(&self) -> *mut Self::Raw {
         self.0.as_ptr()
     }
 }
@@ -78,14 +82,14 @@ impl Keepalive {
 
     /// Registers a core for keepalive checks.
     pub fn register_core(&self, core_id: lcore::Id) {
-        unsafe { ffi::rte_keepalive_register_core(self.as_raw(), *core_id as i32) }
+        unsafe { ffi::rte_keepalive_register_core(self.as_raw_mut(), *core_id as i32) }
     }
 
     /// Per-core keepalive check.
     ///
     /// This function needs to be called from within the main process loop of the LCore to be checked.
     pub fn mark_alive(&self) {
-        unsafe { ffi::rte_keepalive_mark_alive(self.as_raw()) }
+        unsafe { ffi::rte_keepalive_mark_alive(self.as_raw_mut()) }
     }
 
     /// Per-core sleep-time indication.
@@ -94,7 +98,7 @@ impl Keepalive {
     /// the main process loop of the LCore going to sleep,
     /// in order to avoid the LCore being mis-detected as dead.
     pub fn mark_sleep(&self) {
-        unsafe { ffi::rte_keepalive_mark_sleep(self.as_raw()) }
+        unsafe { ffi::rte_keepalive_mark_sleep(self.as_raw_mut()) }
     }
 
     /// Registers a 'live core' callback.
@@ -105,7 +109,7 @@ impl Keepalive {
     pub fn register_relay_callback<T>(&self, callback: RelayCallback<T>, arg: Option<T>) {
         let ctxt = Box::into_raw(Box::new(RelayContext { callback, arg }));
 
-        unsafe { ffi::rte_keepalive_register_relay_callback(self.as_raw(), Some(relay_stub::<T>), ctxt as *mut _) }
+        unsafe { ffi::rte_keepalive_register_relay_callback(self.as_raw_mut(), Some(relay_stub::<T>), ctxt as *mut _) }
     }
 }
 

@@ -255,7 +255,7 @@ impl EthDevice for PortId {
                                         nb_rx_desc,
                                         self.socket_id() as u32,
                                         rx_conf.as_ref().map(|conf| conf as *const _).unwrap_or(ptr::null()),
-                                        mb_pool.as_raw())
+                                        mb_pool.as_raw_mut())
         }; ok => { self })
     }
 

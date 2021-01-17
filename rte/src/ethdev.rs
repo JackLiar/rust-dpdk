@@ -490,6 +490,7 @@ pub type EthTxMultiQueueMode = ffi::rte_eth_tx_mq_mode::Type;
 /// rte_eth_dev_info_get().
 bitflags! {
     pub struct RssHashFunc: u64 {
+        const ETH_RSS_UNKNOWN            = 0;
         const ETH_RSS_IPV4               = 1 << ffi::RTE_ETH_FLOW_IPV4;
         const ETH_RSS_FRAG_IPV4          = 1 << ffi::RTE_ETH_FLOW_FRAG_IPV4;
         const ETH_RSS_NONFRAG_IPV4_TCP   = 1 << ffi::RTE_ETH_FLOW_NONFRAG_IPV4_TCP;

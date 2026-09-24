@@ -6,23 +6,24 @@ use std::ptr;
 use std::result;
 use std::str;
 
-use rand::{thread_rng, Rng};
+use anyhow::Result;
+use rand::{RngExt, rng};
 
-use ffi;
-
-use errors::Result;
-use mbuf;
-use utils::AsRaw;
+use crate::ffi;
+use crate::mbuf;
+use crate::utils::AsRaw;
+use crate::{rte_check, rte_cpu_to_be_16};
 
 pub use ffi::{
-    ETHER_TYPE_IPv4, ETHER_TYPE_IPv6, ETHER_ADDR_FMT_SIZE, ETHER_CRC_LEN, ETHER_GROUP_ADDR, ETHER_HDR_LEN,
-    ETHER_LOCAL_ADMIN_ADDR, ETHER_MAX_JUMBO_FRAME_LEN, ETHER_MAX_LEN, ETHER_MAX_VLAN_FRAME_LEN, ETHER_MAX_VLAN_ID,
-    ETHER_MIN_LEN, ETHER_MIN_MTU, ETHER_MTU, ETHER_TYPE_1588, ETHER_TYPE_ARP, ETHER_TYPE_ETAG, ETHER_TYPE_LEN,
-    ETHER_TYPE_LLDP, ETHER_TYPE_MPLS, ETHER_TYPE_MPLSM, ETHER_TYPE_QINQ, ETHER_TYPE_RARP, ETHER_TYPE_SLOW,
-    ETHER_TYPE_TEB, ETHER_TYPE_VLAN,
+    RTE_ETHER_ADDR_FMT_SIZE, RTE_ETHER_CRC_LEN, RTE_ETHER_GROUP_ADDR, RTE_ETHER_HDR_LEN, RTE_ETHER_LOCAL_ADMIN_ADDR,
+    RTE_ETHER_MAX_JUMBO_FRAME_LEN, RTE_ETHER_MAX_LEN, RTE_ETHER_MAX_VLAN_FRAME_LEN, RTE_ETHER_MAX_VLAN_ID,
+    RTE_ETHER_MIN_LEN, RTE_ETHER_MIN_MTU, RTE_ETHER_MTU, RTE_ETHER_TYPE_1588, RTE_ETHER_TYPE_ARP, RTE_ETHER_TYPE_ETAG,
+    RTE_ETHER_TYPE_IPV4, RTE_ETHER_TYPE_IPV6, RTE_ETHER_TYPE_LEN, RTE_ETHER_TYPE_LLDP, RTE_ETHER_TYPE_MPLS,
+    RTE_ETHER_TYPE_MPLSM, RTE_ETHER_TYPE_QINQ, RTE_ETHER_TYPE_RARP, RTE_ETHER_TYPE_SLOW, RTE_ETHER_TYPE_TEB,
+    RTE_ETHER_TYPE_VLAN,
 };
 
-pub const ETHER_ADDR_LEN: usize = ffi::ETHER_ADDR_LEN as usize;
+pub const ETHER_ADDR_LEN: usize = ffi::RTE_ETHER_ADDR_LEN as usize;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AddrParseError(());
@@ -39,7 +40,7 @@ impl error::Error for AddrParseError {
     }
 }
 
-pub type RawEtherAddr = ffi::ether_addr;
+pub type RawEtherAddr = ffi::rte_ether_addr;
 
 /// A 48-bit (6 byte) buffer containing the MAC address
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Hash)]
@@ -110,10 +111,10 @@ impl EtherAddr {
     pub fn random() -> Self {
         let mut addr = [0u8; ETHER_ADDR_LEN];
 
-        thread_rng().fill(&mut addr);
+        rng().fill(&mut addr);
 
-        addr[0] &= !ffi::ETHER_GROUP_ADDR as u8; // clear multicast bit
-        addr[0] |= ffi::ETHER_LOCAL_ADMIN_ADDR as u8; // set local assignment bit
+        addr[0] &= !ffi::RTE_ETHER_GROUP_ADDR as u8; // clear multicast bit
+        addr[0] |= ffi::RTE_ETHER_LOCAL_ADMIN_ADDR as u8; // set local assignment bit
 
         EtherAddr(addr)
     }
@@ -127,13 +128,13 @@ impl EtherAddr {
     /// Check if an Ethernet address is a unicast address.
     #[inline]
     pub fn is_unicast(&self) -> bool {
-        (self.0[0] & ffi::ETHER_GROUP_ADDR as u8) == 0
+        (self.0[0] & ffi::RTE_ETHER_GROUP_ADDR as u8) == 0
     }
 
     /// Check if an Ethernet address is a multicast address.
     #[inline]
     pub fn is_multicast(&self) -> bool {
-        (self.0[0] & ffi::ETHER_GROUP_ADDR as u8) != 0
+        (self.0[0] & ffi::RTE_ETHER_GROUP_ADDR as u8) != 0
     }
 
     /// Check if an Ethernet address is a broadcast address.
@@ -145,13 +146,13 @@ impl EtherAddr {
     /// Check if an Ethernet address is a universally assigned address.
     #[inline]
     pub fn is_universal(&self) -> bool {
-        (self.0[0] & ffi::ETHER_LOCAL_ADMIN_ADDR as u8) == 0
+        (self.0[0] & ffi::RTE_ETHER_LOCAL_ADMIN_ADDR as u8) == 0
     }
 
     ///  Check if an Ethernet address is a locally assigned address.
     #[inline]
     pub fn is_local_admin(&self) -> bool {
-        (self.0[0] & ffi::ETHER_LOCAL_ADMIN_ADDR as u8) != 0
+        (self.0[0] & ffi::RTE_ETHER_LOCAL_ADMIN_ADDR as u8) != 0
     }
 
     /// Check if an Ethernet address is a valid address.
@@ -184,7 +185,7 @@ impl From<*const u8> for EtherAddr {
         let mut mac = [0u8; ETHER_ADDR_LEN];
 
         unsafe {
-            ptr::copy_nonoverlapping(p, (&mut mac[..]).as_mut_ptr(), ETHER_ADDR_LEN);
+            ptr::copy_nonoverlapping(p, mac[..].as_mut_ptr(), ETHER_ADDR_LEN);
         }
 
         EtherAddr(mac)
@@ -196,7 +197,7 @@ impl From<*mut u8> for EtherAddr {
         let mut mac = [0u8; ETHER_ADDR_LEN];
 
         unsafe {
-            ptr::copy_nonoverlapping(p, (&mut mac[..]).as_mut_ptr(), ETHER_ADDR_LEN);
+            ptr::copy_nonoverlapping(p, mac[..].as_mut_ptr(), ETHER_ADDR_LEN);
         }
 
         EtherAddr(mac)
@@ -225,30 +226,27 @@ impl str::FromStr for EtherAddr {
 // Ethernet frame types
 
 /// IPv4 Protocol.
-pub const ETHER_TYPE_IPV4_BE: u16 = rte_cpu_to_be_16!(ffi::ETHER_TYPE_IPv4 as u16);
+pub const ETHER_TYPE_IPV4_BE: u16 = rte_cpu_to_be_16!(ffi::RTE_ETHER_TYPE_IPV4 as u16);
 /// IPv6 Protocol.
-pub const ETHER_TYPE_IPV6_BE: u16 = rte_cpu_to_be_16!(ffi::ETHER_TYPE_IPv6 as u16);
+pub const ETHER_TYPE_IPV6_BE: u16 = rte_cpu_to_be_16!(ffi::RTE_ETHER_TYPE_IPV6 as u16);
 /// Arp Protocol.
-pub const ETHER_TYPE_ARP_BE: u16 = rte_cpu_to_be_16!(ffi::ETHER_TYPE_ARP as u16);
+pub const ETHER_TYPE_ARP_BE: u16 = rte_cpu_to_be_16!(ffi::RTE_ETHER_TYPE_ARP as u16);
 /// Reverse Arp Protocol.
-pub const ETHER_TYPE_RARP_BE: u16 = rte_cpu_to_be_16!(ffi::ETHER_TYPE_RARP as u16);
+pub const ETHER_TYPE_RARP_BE: u16 = rte_cpu_to_be_16!(ffi::RTE_ETHER_TYPE_RARP as u16);
 /// IEEE 802.1Q VLAN tagging.
-pub const ETHER_TYPE_VLAN_BE: u16 = rte_cpu_to_be_16!(ffi::ETHER_TYPE_VLAN as u16);
+pub const ETHER_TYPE_VLAN_BE: u16 = rte_cpu_to_be_16!(ffi::RTE_ETHER_TYPE_VLAN as u16);
 /// IEEE 802.1AS 1588 Precise Time Protocol.
-pub const ETHER_TYPE_1588_BE: u16 = rte_cpu_to_be_16!(ffi::ETHER_TYPE_1588 as u16);
+pub const ETHER_TYPE_1588_BE: u16 = rte_cpu_to_be_16!(ffi::RTE_ETHER_TYPE_1588 as u16);
 /// Slow protocols (LACP and Marker).
-pub const ETHER_TYPE_SLOW_BE: u16 = rte_cpu_to_be_16!(ffi::ETHER_TYPE_SLOW as u16);
+pub const ETHER_TYPE_SLOW_BE: u16 = rte_cpu_to_be_16!(ffi::RTE_ETHER_TYPE_SLOW as u16);
 /// Transparent Ethernet Bridging.
-pub const ETHER_TYPE_TEB_BE: u16 = rte_cpu_to_be_16!(ffi::ETHER_TYPE_TEB as u16);
+pub const ETHER_TYPE_TEB_BE: u16 = rte_cpu_to_be_16!(ffi::RTE_ETHER_TYPE_TEB as u16);
 
 /// Ethernet header: Contains the destination address, source address and frame type.
-pub type EtherHdr = ffi::ether_hdr;
+pub type EtherHdr = ffi::rte_ether_hdr;
 
 /// Ethernet VLAN Header.
-pub type VlanHdr = ffi::vlan_hdr;
-
-/// VXLAN protocol header.
-pub type VxlanHdr = ffi::vxlan_hdr;
+pub type VlanHdr = ffi::rte_vlan_hdr;
 
 pub trait VlanExt {
     /// Extract VLAN tag information into mbuf
@@ -257,7 +255,7 @@ pub trait VlanExt {
 
 impl VlanExt for mbuf::MBuf {
     fn vlan_strip(&mut self) -> Result<()> {
-        rte_check!(unsafe { ffi::_rte_vlan_strip(self.as_raw()) })
+        rte_check!(unsafe { ffi::_rte_vlan_strip(self.as_raw_mut()) })
     }
 }
 

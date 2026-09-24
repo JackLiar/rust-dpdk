@@ -1,106 +1,106 @@
-#[macro_use]
-extern crate log;
-extern crate pretty_env_logger;
-
-#[cfg(feature = "gen")]
-extern crate bindgen;
-
-extern crate rte_build;
-
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use rte_build::*;
+use anyhow::{Result, anyhow};
+use pkg_config::Library;
 
-#[cfg(feature = "gen")]
-fn gen_rte_binding(rte_sdk_dir: &Path, dest_path: &Path) {
-    let rte_header = "src/rte.h";
-    let stub_header = "src/stub.h";
+fn generate_rte_header(fpath: &Path) -> Result<()> {
+    let mut file = BufWriter::new(File::create(fpath)?);
+    file.write_all(b"#pragma once\n")?;
+    file.write_all(b"\n")?;
+    file.write_all(b"// Build Configuration\n")?;
+    file.write_all(b"#include <rte_config.h>\n")?;
+    file.write_all(b"\n")?;
+    file.write_all(b"// Core DPDK headers\n")?;
+    // file.write(b"#include <rte_graph.h>\n")?;
+    // file.write(b"#include <rte_node_eth_api.h>\n")?;
+    // file.write(b"#include <rte_node_eth_api.h>\n")?;
+    // file.write(b"#include <rte_node_ip4_api.h>\n")?;
+    // file.write(b"#include <rte_node_ip6_api.h>\n")?;
+    // file.write(b"#include <rte_node_udp4_input_api.h>\n")?;
+    file.write_all(b"#include <rte_common.h>\n")?;
+    file.write_all(b"#include <rte_eal.h>\n")?;
+    file.write_all(b"#include <rte_errno.h>\n")?;
+    file.write_all(b"#include <rte_lcore.h>\n")?;
+    file.write_all(b"#include <rte_malloc.h>\n")?;
+    file.write_all(b"#include <rte_mempool.h>\n")?;
+    file.write_all(b"#include <cmdline_cirbuf.h>\n")?;
+    file.write_all(b"#include <cmdline.h>\n")?;
+    file.write_all(b"#include <cmdline_parse_etheraddr.h>\n")?;
+    file.write_all(b"#include <cmdline_parse.h>\n")?;
+    file.write_all(b"#include <cmdline_parse_ipaddr.h>\n")?;
+    file.write_all(b"#include <cmdline_parse_num.h>\n")?;
+    file.write_all(b"#include <cmdline_parse_portlist.h>\n")?;
+    file.write_all(b"#include <cmdline_parse_string.h>\n")?;
+    file.write_all(b"#include <cmdline_rdline.h>\n")?;
+    file.write_all(b"#include <cmdline_socket.h>\n")?;
+    file.write_all(b"#include <cmdline_vt100.h>\n")?;
+    Ok(())
+}
 
-    info!("generating RTE binding file base on \"{}\"", rte_header);
+fn generate_link_args(libdpdk: &Library) -> Result<()> {
+    for p in &libdpdk.link_paths {
+        cargo_emit::rustc_link_search!(format!("{}", p.display()));
+    }
+    cargo_emit::rustc_link_lib!("rte_cmdline");
+    cargo_emit::rustc_link_lib!("rte_eal");
+    cargo_emit::rustc_link_lib!("rte_ethdev");
+    cargo_emit::rustc_link_lib!("rte_mbuf");
+    cargo_emit::rustc_link_lib!("rte_mempool");
+    Ok(())
+}
 
-    let rte_sdk_inc_dir = rte_sdk_dir.join("include");
-    let cflags = vec!["-march=native", "-I", rte_sdk_inc_dir.to_str().unwrap()];
+fn main() -> Result<()> {
+    pretty_env_logger::init();
+    cargo_emit::rerun_if_env_changed!("PKG_CONFIG_PATH");
+    let libdpdk = pkg_config::Config::new()
+        .cargo_metadata(false)
+        .env_metadata(false)
+        .probe("libdpdk")
+        .expect("RTE_LIBDIR - Failed to get information from libdpdk.pc");
 
-    bindgen::Builder::default()
-        .header(rte_header)
-        .header(stub_header)
-        .generate_comments(true)
-        .generate_inline_functions(true)
-        .whitelist_type(r"(rte|cmdline|ether|eth|arp|vlan|vxlan)_.*")
-        .whitelist_function(r"(_rte|rte|cmdline|lcore|ether|eth|arp|is)_.*")
-        .whitelist_var(
-            r"(RTE|CMDLINE|ETHER|ARP|VXLAN|BONDING|LCORE|MEMPOOL|ARP|PKT|EXT_ATTACHED|IND_ATTACHED|lcore|rte|cmdline|per_lcore)_.*",
+    let out_dir = std::env::var("OUT_DIR")?;
+    let out_path = Path::new(&out_dir).join("rte.rs");
+    let header_file = Path::new(&out_dir).join("rte.h");
+
+    generate_rte_header(&header_file)?;
+
+    bindgen::builder()
+        .header(
+            header_file
+                .to_str()
+                .ok_or(anyhow!("Invalid header file name: {}", header_file.display()))?,
         )
+        .header("src/stub.h")
+        .clang_args(libdpdk.include_paths.iter().map(|p| format!("-I{}", p.display())))
+        .blocklist_type(
+            "rte_flow_item_gtp_psc|rte_l2tpv2_combined_msg_hdr|rte_arp_ipv4|rte_arp_hdr|rte_ecpri_combined_msg_hdr|rte_l2tpv2_common_hdr|rte_ecpri_common_hdr|rte_flow_item_l2tpv2|rte_flow_item_ecpri|rte_flow_item_arp_eth_ipv4|rte_flow_item_arp_eth_ipv4__bindgen_ty_1",
+        )
+        .blocklist_var("rte_flow_item_gtp_psc_mask|rte_flow_item_ecpri_mask|rte_flow_item_l2tpv2_mask|rte_flow_item_arp_eth_ipv4_mask")
         .derive_copy(true)
         .derive_debug(true)
         .derive_default(true)
         .derive_partialeq(true)
         .default_enum_style(bindgen::EnumVariation::ModuleConsts)
-        .clang_arg("-fkeep-inline-functions")
-        .clang_args(
-            cflags
-                .into_iter()
-                .map(|s| s.to_owned())
-                .chain(gen_cpu_features().map(|(name, value)| {
-                    if let Some(value) = value {
-                        format!("-D{}={}", name, value)
-                    } else {
-                        format!("-D{}", name)
-                    }
-                })),
-        )
-        .rustfmt_bindings(true)
+        .generate_inline_functions(true)
         .time_phases(true)
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file(dest_path)
+        .write_to_file(out_path)
         .expect("Couldn't write bindings!");
-}
 
-#[cfg(not(feature = "gen"))]
-fn gen_rte_binding(_rte_sdk_dir: &Path, dest_path: &Path) {
-    use std::fs;
-
-    info!("coping RTE binding file");
-
-    fs::copy("src/raw.rs", dest_path).expect("copy binding file");
-}
-
-fn main() {
-    pretty_env_logger::init();
-
-    let rte_sdk_dir = RTE_SDK.join(RTE_TARGET.as_str());
-
-    info!("using DPDK @ {:?}", rte_sdk_dir);
-
-    if !rte_sdk_dir.exists() || !rte_sdk_dir.join("lib/libdpdk.a").exists() {
-        apply_patches(RTE_SDK.as_path());
-
-        build_dpdk(RTE_SDK.as_path(), RTE_TARGET.as_str());
-    }
-
-    if cfg!(feature = "gen") {
-        gen_rte_config(&rte_sdk_dir, &OUT_DIR.join("config.rs"));
-
-        let binding_file = OUT_DIR.join("raw.rs");
-
-        gen_rte_binding(&rte_sdk_dir, &binding_file);
-    }
-
-    gcc_rte_config(&rte_sdk_dir)
+    let mut build = cc::Build::new();
+    build
+        .includes(&libdpdk.include_paths)
+        .cargo_metadata(true)
         .file("src/stub.c")
         .include("src")
+        .flag("-march=native")
+        .flag_if_supported("-mrtm")
         .compile("rte_stub");
 
-    gen_cargo_config(
-        &rte_sdk_dir,
-        RTE_CORE_LIBS
-            .iter()
-            .chain(RTE_PMD_LIBS.iter())
-            .chain(RTE_DEPS_LIBS.iter()),
-    );
+    generate_link_args(&libdpdk)?;
 
-    if cfg!(target_os = "linux") {
-        println!("cargo:rustc-link-search=native=/usr/lib/x86_64-linux-gnu");
-    }
+    Ok(())
 }

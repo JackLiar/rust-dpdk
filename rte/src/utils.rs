@@ -8,22 +8,32 @@ pub trait Raw<T>: Deref<Target = T> + DerefMut + AsRaw<Raw = T> + IntoRaw + From
 pub trait AsRaw {
     type Raw;
 
-    fn as_raw(&self) -> *mut Self::Raw;
+    fn as_raw(&self) -> *const Self::Raw;
+
+    fn as_raw_mut(&self) -> *mut Self::Raw;
 }
 
 impl<T: AsRaw> AsRaw for &T {
     type Raw = T::Raw;
 
-    fn as_raw(&self) -> *mut Self::Raw {
+    fn as_raw(&self) -> *const Self::Raw {
         (*self).as_raw()
+    }
+
+    fn as_raw_mut(&self) -> *mut Self::Raw {
+        (*self).as_raw_mut()
     }
 }
 
 impl<T: AsRaw> AsRaw for Option<T> {
     type Raw = T::Raw;
 
-    fn as_raw(&self) -> *mut Self::Raw {
-        self.as_ref().map(|p| p.as_raw()).unwrap_or(ptr::null_mut())
+    fn as_raw(&self) -> *const Self::Raw {
+        self.as_ref().map(|p| p.as_raw()).unwrap_or(ptr::null())
+    }
+
+    fn as_raw_mut(&self) -> *mut Self::Raw {
+        self.as_ref().map(|p| p.as_raw_mut()).unwrap_or(ptr::null_mut())
     }
 }
 
@@ -38,6 +48,7 @@ where
     fn from_raw(raw: *mut Self::Raw) -> Option<Self>;
 }
 
+#[macro_export]
 macro_rules! raw {
     (pub $wrapper:ident ( $raw_ty:ty ) ) => {
         #[repr(transparent)]
@@ -63,7 +74,11 @@ macro_rules! raw {
         impl $crate::utils::AsRaw for $wrapper {
             type Raw = $raw_ty;
 
-            fn as_raw(&self) -> *mut Self::Raw {
+            fn as_raw(&self) -> *const Self::Raw {
+                self.0.as_ptr()
+            }
+
+            fn as_raw_mut(&self) -> *mut Self::Raw {
                 self.0.as_ptr()
             }
         }

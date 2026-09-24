@@ -1,11 +1,12 @@
 use std::mem;
 use std::os::unix::io::AsRawFd;
 
+use anyhow::Result;
 use cfile;
 
-use errors::{AsResult, ErrorKind::*, Result};
-use ffi;
-use utils::AsCString;
+use crate::errors::{AsResult, ErrorKind::*};
+use crate::ffi;
+use crate::utils::AsCString;
 
 /// SDK log type
 #[repr(u32)]
@@ -14,45 +15,45 @@ pub enum Type {
     /// Log related to eal.
     Eal = ffi::RTE_LOGTYPE_EAL,
     /// Log related to malloc.
-    Malloc = ffi::RTE_LOGTYPE_MALLOC,
+    // Malloc = ffi::RTE_LOGTYPE_MALLOC,
     /// Log related to ring.
-    Ring = ffi::RTE_LOGTYPE_RING,
+    // Ring = ffi::RTE_LOGTYPE_RING,
     /// Log related to mempool.
-    MemPool = ffi::RTE_LOGTYPE_MEMPOOL,
+    // MemPool = ffi::RTE_LOGTYPE_MEMPOOL,
     /// Log related to timers.
-    Timer = ffi::RTE_LOGTYPE_TIMER,
+    // Timer = ffi::RTE_LOGTYPE_TIMER,
     /// Log related to poll mode driver.
-    PMD = ffi::RTE_LOGTYPE_PMD,
+    // PMD = ffi::RTE_LOGTYPE_PMD,
     /// Log related to hash table.
-    Hash = ffi::RTE_LOGTYPE_HASH,
+    // Hash = ffi::RTE_LOGTYPE_HASH,
     /// Log related to LPM.
-    LPM = ffi::RTE_LOGTYPE_LPM,
+    // LPM = ffi::RTE_LOGTYPE_LPM,
     /// Log related to KNI.
-    KNI = ffi::RTE_LOGTYPE_KNI,
+    // KNI = ffi::RTE_LOGTYPE_KNI,
     /// Log related to ACL.
-    ACL = ffi::RTE_LOGTYPE_ACL,
+    // ACL = ffi::RTE_LOGTYPE_ACL,
     /// Log related to power.
-    Power = ffi::RTE_LOGTYPE_POWER,
+    // Power = ffi::RTE_LOGTYPE_POWER,
     /// Log related to QoS meter.
-    Meter = ffi::RTE_LOGTYPE_METER,
+    // Meter = ffi::RTE_LOGTYPE_METER,
     /// Log related to QoS port scheduler.
-    PortScheduler = ffi::RTE_LOGTYPE_SCHED,
+    // PortScheduler = ffi::RTE_LOGTYPE_SCHED,
     /// Log related to port.
-    Port = ffi::RTE_LOGTYPE_PORT,
+    // Port = ffi::RTE_LOGTYPE_PORT,
     /// Log related to table.
-    Table = ffi::RTE_LOGTYPE_TABLE,
+    // Table = ffi::RTE_LOGTYPE_TABLE,
     /// Log related to pipeline.
-    Pipeline = ffi::RTE_LOGTYPE_PIPELINE,
+    // Pipeline = ffi::RTE_LOGTYPE_PIPELINE,
     /// Log related to mbuf.
-    MBuf = ffi::RTE_LOGTYPE_MBUF,
+    // MBuf = ffi::RTE_LOGTYPE_MBUF,
     /// Log related to cryptodev.
-    CryptoDev = ffi::RTE_LOGTYPE_CRYPTODEV,
+    // CryptoDev = ffi::RTE_LOGTYPE_CRYPTODEV,
     /// Log related to EFD.
-    EFD = ffi::RTE_LOGTYPE_EFD,
+    // EFD = ffi::RTE_LOGTYPE_EFD,
     /// Log related to eventdev.
-    EventDev = ffi::RTE_LOGTYPE_EVENTDEV,
+    // EventDev = ffi::RTE_LOGTYPE_EVENTDEV,
     /// Log related to GSO.
-    GSO = ffi::RTE_LOGTYPE_GSO,
+    // GSO = ffi::RTE_LOGTYPE_GSO,
     /// User-defined log type 1.
     User1 = ffi::RTE_LOGTYPE_USER1,
     /// User-defined log type 2.

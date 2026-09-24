@@ -1,41 +1,40 @@
 [package]
 name = "rte"
-version = "18.11.0"
+version.workspace = true
+edition.workspace = true
 authors = ["Flier Lu <flier.lu@gmail.com>"]
-description = "Rust bindings to DPDK"
+description = "Rust bindings to DPDK 20.11"
 build = "build.rs"
 
 [features]
 default = []
-gen = ["rte-sys/gen"]
 
 [dependencies]
-log = "0.4"
-bitflags = "1.0"
-failure = "0.1"
-lazy_static = "1.2"
+anyhow = "1"
+log = { workspace = true }
+bitflags = "2"
+lazy_static = { workspace = true }
 libc = "0.2"
-time = "0.1"
-cfile = "0.4"
-rand = "0.6"
-errno = "0.2"
+time = "0.3"
+cfile = "0.5"
+rand = "0.10"
+errno = "0.3"
 num-traits = "0.2"
-num-derive = "0.2"
-itertools = "0.8"
+num-derive = "0.5"
+itertools = { workspace = true }
+thiserror = "2"
 
-rte-sys = { version = "18.11", path = "../rte-sys" }
+rte-sys = { path = "../rte-sys" }
 
 [build-dependencies]
-log = "0.4"
-pretty_env_logger = "0.3"
-
-rte-build = { version = "18.11", path = "../rte-build" }
+log = { workspace = true }
+pretty_env_logger = { workspace = true }
 
 [dev-dependencies]
-pretty_env_logger = "0.3"
-num_cpus = "1.0"
+pretty_env_logger = { workspace = true }
+num_cpus = { workspace = true }
 getopts = "0.2"
-nix = "0.14"
+nix = "0.31"
 
 [lib]
 name = "rte"
@@ -44,13 +43,13 @@ name = "rte"
 name = "helloworld"
 path = "examples/helloworld/main.rs"
 
-[[example]]
-name = "l2fwd"
-path = "examples/l2fwd/main.rs"
+# [[example]]
+# name = "l2fwd"
+# path = "examples/l2fwd/main.rs"
 
-[[example]]
-name = "kni"
-path = "examples/kni/main.rs"
+# [[example]]
+# name = "kni"
+# path = "examples/kni/main.rs"
 
 [[example]]
 name = "bond"

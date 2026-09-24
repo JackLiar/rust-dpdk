@@ -2,11 +2,13 @@
 //!
 use std::os::raw::{c_int, c_void};
 
-use ffi;
+use anyhow::Result;
 use num_traits::FromPrimitive;
 
-use errors::{AsResult, Result};
-use lcore;
+use crate::errors::AsResult;
+use crate::ffi;
+
+use super::lcore;
 
 /// State of an lcore.
 #[repr(u32)]
@@ -14,7 +16,7 @@ use lcore;
 pub enum State {
     Wait = ffi::rte_lcore_state_t::WAIT,
     Running = ffi::rte_lcore_state_t::RUNNING,
-    Finished = ffi::rte_lcore_state_t::FINISHED,
+    // Finished = ffi::rte_lcore_state_t::FINISHED,
 }
 
 impl From<ffi::rte_lcore_state_t::Type> for State {
@@ -32,7 +34,7 @@ struct LcoreContext<T> {
 }
 
 unsafe extern "C" fn lcore_stub<T>(arg: *mut c_void) -> c_int {
-    let ctxt = Box::from_raw(arg as *mut LcoreContext<T>);
+    let ctxt = unsafe { Box::from_raw(arg as *mut LcoreContext<T>) };
 
     (ctxt.callback)(ctxt.arg)
 }
@@ -51,13 +53,13 @@ pub fn remote_launch<T>(callback: LcoreFunc<T>, arg: Option<T>, slave_id: lcore:
 /// Launch a function on all lcores.
 pub fn mp_remote_launch<T>(callback: LcoreFunc<T>, arg: Option<T>, skip_master: bool) -> Result<()> {
     let ctxt = Box::into_raw(Box::new(LcoreContext::<T> { callback, arg })) as *mut c_void;
-    let call_master = if skip_master {
-        ffi::rte_rmt_call_master_t::SKIP_MASTER
+    let call_main = if skip_master {
+        ffi::rte_rmt_call_main_t::SKIP_MAIN
     } else {
-        ffi::rte_rmt_call_master_t::CALL_MASTER
+        ffi::rte_rmt_call_main_t::CALL_MAIN
     };
 
-    unsafe { ffi::rte_eal_mp_remote_launch(Some(lcore_stub::<T>), ctxt, call_master) }
+    unsafe { ffi::rte_eal_mp_remote_launch(Some(lcore_stub::<T>), ctxt, call_main) }
         .as_result()
         .map(|_| ())
 }
@@ -79,11 +81,7 @@ impl lcore::Id {
     pub fn wait(self) -> JobState {
         let s = unsafe { ffi::rte_eal_wait_lcore(*self) };
 
-        if s == 0 {
-            JobState::Wait
-        } else {
-            JobState::Finished(s)
-        }
+        if s == 0 { JobState::Wait } else { JobState::Finished(s) }
     }
 }
 

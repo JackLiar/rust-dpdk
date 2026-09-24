@@ -53,7 +53,7 @@ impl AppConfig {
     where
         F: Fn(&mut AppPort, ethdev::PortId) -> result::Result<T, String>,
     {
-        match self.ports.iter().nth(port as usize) {
+        match self.ports.get(port as usize) {
             Some(mutex) => {
                 if !port.is_valid() {
                     Err(format!("port {} is invalid", port))

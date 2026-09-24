@@ -4,8 +4,9 @@ use std::os::unix::io::AsRawFd;
 use std::ptr;
 
 use cfile;
+use cfile::foreign_types::ForeignType;
 
-use ffi;
+use crate::ffi;
 
 #[macro_export]
 macro_rules! rte_new {
@@ -128,7 +129,7 @@ pub fn dump_stats<S: AsRawFd>(s: &S, tag: Option<&str>) {
     if let Ok(mut f) = cfile::fdopen(s, "w") {
         unsafe {
             ffi::rte_malloc_dump_stats(
-                &mut **f as *mut _ as *mut _,
+                f.as_ptr() as *mut _,
                 tag.map_or_else(ptr::null, |s| s.as_ptr() as *const i8),
             );
         }

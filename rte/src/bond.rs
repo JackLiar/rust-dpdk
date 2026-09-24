@@ -1,11 +1,11 @@
 use std::mem;
 
-use ffi;
+use anyhow::Result;
 
-use errors::Result;
-use ethdev;
-use ether;
-use memory::SocketId;
+use crate::ethdev;
+use crate::ether;
+use crate::ffi;
+use crate::memory::SocketId;
 
 /// Supported modes of operation of link bonding library
 #[repr(u8)]
@@ -109,22 +109,22 @@ impl From<u8> for TransmitPolicy {
 
 /// Create a bonded rte_eth_dev device
 pub fn create(name: &str, mode: BondMode, socket_id: SocketId) -> Result<ethdev::PortId> {
-    let port_id = unsafe { ffi::rte_eth_bond_create(try!(to_cptr!(name)), mode as u8, socket_id as u8) };
+    let port_id = unsafe { ffi::rte_eth_bond_create(to_cptr!(name)?, mode as u8, socket_id as u8) };
 
     rte_check!(port_id; ok => { port_id as ethdev::PortId })
 }
 
 /// Free a bonded rte_eth_dev device
 pub fn free(name: &str) -> Result<()> {
-    rte_check!(unsafe { ffi::rte_eth_bond_free(try!(to_cptr!(name))) })
+    rte_check!(unsafe { ffi::rte_eth_bond_free(to_cptr!(name)?) })
 }
 
 pub trait BondedDevice {
-    /// Add a rte_eth_dev device as a slave to the bonded device
-    fn add_slave(&self, slave: ethdev::PortId) -> Result<&Self>;
+    /// Add a rte_eth_dev device as a member to the bonded device
+    fn add_member(&self, member: ethdev::PortId) -> Result<&Self>;
 
-    /// Remove a slave rte_eth_dev device from the bonded device
-    fn remove_slave(&self, slave: ethdev::PortId) -> Result<&Self>;
+    /// Remove a member rte_eth_dev device from the bonded device
+    fn remove_member(&self, member: ethdev::PortId) -> Result<&Self>;
 
     /// Get link bonding mode of bonded device
     fn mode(&self) -> Result<BondMode>;
@@ -132,22 +132,22 @@ pub trait BondedDevice {
     /// Set link bonding mode of bonded device
     fn set_mode(&self, mode: BondMode) -> Result<&Self>;
 
-    /// Get primary slave of bonded device
+    /// Get primary member of bonded device
     fn primary(&self) -> Result<ethdev::PortId>;
 
-    /// Set slave rte_eth_dev as primary slave of bonded device
+    /// Set member rte_eth_dev as primary member of bonded device
     fn set_primary(&self, dev: ethdev::PortId) -> Result<&Self>;
 
-    /// Populate an array with list of the slaves port id's of the bonded device
-    fn slaves(&self) -> Result<Vec<ethdev::PortId>>;
+    /// Populate an array with list of the members port id's of the bonded device
+    fn members(&self) -> Result<Vec<ethdev::PortId>>;
 
-    /// Populate an array with list of the active slaves port id's of the bonded device.
-    fn active_slaves(&self) -> Result<Vec<ethdev::PortId>>;
+    /// Populate an array with list of the active members port id's of the bonded device.
+    fn active_members(&self) -> Result<Vec<ethdev::PortId>>;
 
-    /// Set explicit MAC address to use on bonded device and it's slaves.
+    /// Set explicit MAC address to use on bonded device and it's members.
     fn set_mac_addr(&self, mac_addr: &ether::EtherAddr) -> Result<&Self>;
 
-    /// Reset bonded device to use MAC from primary slave on bonded device and it's slaves.
+    /// Reset bonded device to use MAC from primary members on bonded device and it's members.
     fn reset_mac_addr(&self) -> Result<&Self>;
 
     /// Get the transmit policy set on bonded device for balance mode operation
@@ -159,15 +159,15 @@ pub trait BondedDevice {
 }
 
 impl BondedDevice for ethdev::PortId {
-    fn add_slave(&self, slave: ethdev::PortId) -> Result<&Self> {
+    fn add_member(&self, member: ethdev::PortId) -> Result<&Self> {
         rte_check!(unsafe {
-            ffi::rte_eth_bond_slave_add(*self, slave)
+            ffi::rte_eth_bond_member_add(*self, member)
         }; ok => { self })
     }
 
-    fn remove_slave(&self, slave: ethdev::PortId) -> Result<&Self> {
+    fn remove_member(&self, member: ethdev::PortId) -> Result<&Self> {
         rte_check!(unsafe {
-            ffi::rte_eth_bond_slave_remove(*self, slave)
+            ffi::rte_eth_bond_member_remove(*self, member)
         }; ok => { self })
     }
 
@@ -195,23 +195,23 @@ impl BondedDevice for ethdev::PortId {
         }; ok => { self })
     }
 
-    fn slaves(&self) -> Result<Vec<ethdev::PortId>> {
-        let mut slaves = [0u16; ffi::RTE_MAX_ETHPORTS as usize];
+    fn members(&self) -> Result<Vec<ethdev::PortId>> {
+        let mut members = [0u16; ffi::RTE_MAX_ETHPORTS as usize];
 
-        let num = unsafe { ffi::rte_eth_bond_slaves_get(*self, slaves.as_mut_ptr(), slaves.len() as u16) };
+        let num = unsafe { ffi::rte_eth_bond_members_get(*self, members.as_mut_ptr(), members.len() as u16) };
 
         rte_check!(num; ok => {
-            Vec::from(&slaves[..num as usize])
+            Vec::from(&members[..num as usize])
         })
     }
 
-    fn active_slaves(&self) -> Result<Vec<ethdev::PortId>> {
-        let mut slaves = [0u16; ffi::RTE_MAX_ETHPORTS as usize];
+    fn active_members(&self) -> Result<Vec<ethdev::PortId>> {
+        let mut members = [0u16; ffi::RTE_MAX_ETHPORTS as usize];
 
-        let num = unsafe { ffi::rte_eth_bond_slaves_get(*self, slaves.as_mut_ptr(), slaves.len() as u16) };
+        let num = unsafe { ffi::rte_eth_bond_members_get(*self, members.as_mut_ptr(), members.len() as u16) };
 
         rte_check!(num; ok => {
-            Vec::from(&slaves[..num as usize])
+            Vec::from(&members[..num as usize])
         })
     }
 

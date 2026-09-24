@@ -1,17 +1,21 @@
 use std::ffi::CStr;
+use std::ffi::c_int;
 use std::fmt;
 use std::mem;
 use std::os::raw::c_char;
 use std::path::PathBuf;
 use std::ptr;
 
-use ffi::{self, rte_proc_type_t::*};
+use anyhow::Result;
+use log::debug;
 
-use errors::{AsResult, Result};
-use utils::AsCString;
+use crate::errors::AsResult;
+use crate::ffi::{self, rte_proc_type_t::*};
+use crate::to_cptr;
+use crate::utils::AsCString;
 
-pub use common::config;
-pub use launch::{mp_remote_launch, mp_wait_lcore, remote_launch};
+// pub use common::config;
+pub use super::launch::{mp_remote_launch, mp_wait_lcore, remote_launch};
 
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, FromPrimitive, ToPrimitive)]
@@ -22,7 +26,7 @@ pub enum ProcType {
     Invalid = RTE_PROC_INVALID,
 }
 
-extern "C" {
+unsafe extern "C" {
     // fn vdrvinitfn_pmd_af_packet_drv();
     // fn vdrvinitfn_bbdev_null_pmd_drv();
     // fn vdrvinitfn_pmd_bond_drv();
@@ -109,7 +113,7 @@ pub fn init<S: fmt::Debug + AsRef<str>>(args: &[S]) -> Result<i32> {
         let args: Vec<_> = args.iter().map(|s| s.as_cstring()).collect();
         let mut cptrs: Vec<_> = args.iter().map(|s| s.as_ptr() as *mut c_char).collect();
 
-        unsafe { ffi::rte_eal_init(cptrs.len() as i32, cptrs.as_mut_ptr()) }
+        unsafe { ffi::rte_eal_init(cptrs.len() as c_int, cptrs.as_mut_ptr()) }
     };
 
     debug!("EAL parsed {} arguments", parsed);

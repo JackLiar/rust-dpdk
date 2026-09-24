@@ -1,6 +1,6 @@
 use std::ffi::CStr;
 
-use ffi;
+use crate::ffi;
 
 /// Patch level number i.e. the z in yy.mm.z
 pub use ffi::RTE_VER_MINOR;

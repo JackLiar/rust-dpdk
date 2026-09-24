@@ -6,9 +6,11 @@ use std::ffi::CStr;
 use std::mem;
 use std::os::raw::{c_char, c_void};
 
-use errors::{AsResult, Result};
-use ffi::{self, rte_dev_event_type::*};
-use utils::AsCString;
+use anyhow::Result;
+
+use crate::errors::AsResult;
+use crate::ffi::{self, rte_dev_event_type::*};
+use crate::utils::AsCString;
 
 /// The device event type.
 #[repr(u32)]
@@ -85,10 +87,12 @@ struct EventContext<T> {
 }
 
 unsafe extern "C" fn event_stub<T>(devname: *const c_char, event: ffi::rte_dev_event_type::Type, arg: *mut c_void) {
-    let devname = CStr::from_ptr(devname);
-    let ctxt = Box::from_raw(arg as *mut EventContext<T>);
+    unsafe {
+        let devname = CStr::from_ptr(devname);
+        let ctxt = Box::from_raw(arg as *mut EventContext<T>);
 
-    (ctxt.callback)(devname.to_str().unwrap(), mem::transmute(event), ctxt.arg)
+        (ctxt.callback)(devname.to_str().unwrap(), mem::transmute(event), ctxt.arg)
+    }
 }
 
 ///  It registers the callback for the specific device.

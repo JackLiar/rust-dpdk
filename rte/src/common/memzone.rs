@@ -1,4 +1,4 @@
-use ffi::rte_memzone;
+use crate::ffi::rte_memzone;
 
 /// RTE Memzone
 ///

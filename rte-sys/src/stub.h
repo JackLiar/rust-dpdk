@@ -1,8 +1,7 @@
 #pragma once
 
-#include <rte_bitmap.h>
-#include <rte_spinlock.h>
-#include <rte_mbuf.h>
+#include "rte_bitmap.h"
+#include "rte_ethdev.h"
 
 /**
  * Seed the pseudo-random generator.
@@ -14,8 +13,7 @@
  * @param seedval
  *   The value of the seed.
  */
-void
-_rte_srand(uint64_t seedval);
+void _rte_srand(uint64_t seedval);
 
 /**
  * Get a pseudo-random value.
@@ -27,8 +25,7 @@ _rte_srand(uint64_t seedval);
  * @return
  *   A pseudo-random value between 0 and (1<<64)-1.
  */
-uint64_t
-_rte_rand(void);
+uint64_t _rte_rand(void);
 
 /**
  * Bitmap initialization
@@ -42,8 +39,8 @@ _rte_rand(void);
  * @return
  *   Handle to bitmap instance.
  */
-struct rte_bitmap *
-_rte_bitmap_init(uint32_t n_bits, uint8_t *mem, uint32_t mem_size);
+struct rte_bitmap *_rte_bitmap_init(uint32_t n_bits, uint8_t *mem,
+                                    uint32_t mem_size);
 
 /**
  * Bitmap free
@@ -61,8 +58,7 @@ int _rte_bitmap_free(struct rte_bitmap *bmp);
  * @param bmp
  *   Handle to bitmap instance
  */
-void
-_rte_bitmap_reset(struct rte_bitmap *bmp);
+void _rte_bitmap_reset(struct rte_bitmap *bmp);
 
 /**
  * Bitmap location prefetch into CPU L1 cache
@@ -74,8 +70,7 @@ _rte_bitmap_reset(struct rte_bitmap *bmp);
  * @return
  *   0 upon success, error code otherwise
  */
-void
-_rte_bitmap_prefetch0(struct rte_bitmap *bmp, uint32_t pos);
+void _rte_bitmap_prefetch0(struct rte_bitmap *bmp, uint32_t pos);
 
 /**
  * Bitmap bit get
@@ -87,8 +82,7 @@ _rte_bitmap_prefetch0(struct rte_bitmap *bmp, uint32_t pos);
  * @return
  *   0 when bit is cleared, non-zero when bit is set
  */
-uint64_t
-_rte_bitmap_get(struct rte_bitmap *bmp, uint32_t pos);
+uint64_t _rte_bitmap_get(struct rte_bitmap *bmp, uint32_t pos);
 
 /**
  * Bitmap bit set
@@ -98,8 +92,7 @@ _rte_bitmap_get(struct rte_bitmap *bmp, uint32_t pos);
  * @param pos
  *   Bit position
  */
-void
-_rte_bitmap_set(struct rte_bitmap *bmp, uint32_t pos);
+void _rte_bitmap_set(struct rte_bitmap *bmp, uint32_t pos);
 
 /**
  * Bitmap slab set
@@ -111,8 +104,7 @@ _rte_bitmap_set(struct rte_bitmap *bmp, uint32_t pos);
  * @param slab
  *   Value to be assigned to the 64-bit slab in array2
  */
-void
-_rte_bitmap_set_slab(struct rte_bitmap *bmp, uint32_t pos, uint64_t slab);
+void _rte_bitmap_set_slab(struct rte_bitmap *bmp, uint32_t pos, uint64_t slab);
 
 /**
  * Bitmap bit clear
@@ -122,8 +114,7 @@ _rte_bitmap_set_slab(struct rte_bitmap *bmp, uint32_t pos, uint64_t slab);
  * @param pos
  *   Bit position
  */
-void
-_rte_bitmap_clear(struct rte_bitmap *bmp, uint32_t pos);
+void _rte_bitmap_clear(struct rte_bitmap *bmp, uint32_t pos);
 
 /**
  * Bitmap scan (with automatic wrap-around)
@@ -145,8 +136,7 @@ _rte_bitmap_clear(struct rte_bitmap *bmp, uint32_t pos);
  * @return
  *   0 if there is no bit set in the bitmap, 1 otherwise
  */
-int
-_rte_bitmap_scan(struct rte_bitmap *bmp, uint32_t *pos, uint64_t *slab);
+int _rte_bitmap_scan(struct rte_bitmap *bmp, uint32_t *pos, uint64_t *slab);
 
 /**
  * Bitmap memory footprint calculation
@@ -164,8 +154,7 @@ uint32_t _rte_bitmap_get_memory_footprint(uint32_t n_bits);
  * @param sl
  *   A pointer to the spinlock.
  */
-void
-_rte_spinlock_init(rte_spinlock_t *sl);
+void _rte_spinlock_init(rte_spinlock_t *sl);
 
 /**
  * Take the spinlock.
@@ -173,8 +162,7 @@ _rte_spinlock_init(rte_spinlock_t *sl);
  * @param sl
  *   A pointer to the spinlock.
  */
-void
-_rte_spinlock_lock(rte_spinlock_t *sl);
+void _rte_spinlock_lock(rte_spinlock_t *sl);
 
 /**
  * Release the spinlock.
@@ -182,8 +170,7 @@ _rte_spinlock_lock(rte_spinlock_t *sl);
  * @param sl
  *   A pointer to the spinlock.
  */
-void
-_rte_spinlock_unlock(rte_spinlock_t *sl);
+void _rte_spinlock_unlock(rte_spinlock_t *sl);
 
 /**
  * Try to take the lock.
@@ -193,8 +180,7 @@ _rte_spinlock_unlock(rte_spinlock_t *sl);
  * @return
  *   1 if the lock is successfully taken; 0 otherwise.
  */
-int
-_rte_spinlock_trylock(rte_spinlock_t *sl);
+int _rte_spinlock_trylock(rte_spinlock_t *sl);
 
 /**
  * Test if hardware transactional memory (lock elision) is supported
@@ -202,8 +188,7 @@ _rte_spinlock_trylock(rte_spinlock_t *sl);
  * @return
  *   1 if the hardware transactional memory is supported; 0 otherwise.
  */
-int
-_rte_tm_supported(void);
+int _rte_tm_supported(void);
 
 /**
  * Try to execute critical section in a hardware memory transaction,
@@ -218,8 +203,7 @@ _rte_tm_supported(void);
  * @param sl
  *   A pointer to the spinlock.
  */
-void
-_rte_spinlock_lock_tm(rte_spinlock_t *sl);
+void _rte_spinlock_lock_tm(rte_spinlock_t *sl);
 
 /**
  * Try to execute critical section in a hardware memory transaction,
@@ -237,8 +221,7 @@ _rte_spinlock_lock_tm(rte_spinlock_t *sl);
  *   1 if the hardware memory transaction is successfully started
  *   or lock is successfully taken; 0 otherwise.
  */
-int
-_rte_spinlock_trylock_tm(rte_spinlock_t *sl);
+int _rte_spinlock_trylock_tm(rte_spinlock_t *sl);
 
 /**
  * Commit hardware memory transaction or release the spinlock if
@@ -247,8 +230,7 @@ _rte_spinlock_trylock_tm(rte_spinlock_t *sl);
  * @param sl
  *   A pointer to the spinlock.
  */
-void
-_rte_spinlock_unlock_tm(rte_spinlock_t *sl);
+void _rte_spinlock_unlock_tm(rte_spinlock_t *sl);
 
 /**
  * Initialize the recursive spinlock to an unlocked state.
@@ -256,8 +238,7 @@ _rte_spinlock_unlock_tm(rte_spinlock_t *sl);
  * @param slr
  *   A pointer to the recursive spinlock.
  */
-void
-_rte_spinlock_recursive_init(rte_spinlock_recursive_t *slr);
+void _rte_spinlock_recursive_init(rte_spinlock_recursive_t *slr);
 
 /**
  * Take the recursive spinlock.
@@ -265,8 +246,7 @@ _rte_spinlock_recursive_init(rte_spinlock_recursive_t *slr);
  * @param slr
  *   A pointer to the recursive spinlock.
  */
-void
-_rte_spinlock_recursive_lock(rte_spinlock_recursive_t *slr);
+void _rte_spinlock_recursive_lock(rte_spinlock_recursive_t *slr);
 
 /**
  * Release the recursive spinlock.
@@ -274,8 +254,7 @@ _rte_spinlock_recursive_lock(rte_spinlock_recursive_t *slr);
  * @param slr
  *   A pointer to the recursive spinlock.
  */
-void
-_rte_spinlock_recursive_unlock(rte_spinlock_recursive_t *slr);
+void _rte_spinlock_recursive_unlock(rte_spinlock_recursive_t *slr);
 
 /**
  * Try to take the recursive lock.
@@ -285,8 +264,7 @@ _rte_spinlock_recursive_unlock(rte_spinlock_recursive_t *slr);
  * @return
  *   1 if the lock is successfully taken; 0 otherwise.
  */
-int
-_rte_spinlock_recursive_trylock(rte_spinlock_recursive_t *slr);
+int _rte_spinlock_recursive_trylock(rte_spinlock_recursive_t *slr);
 
 /**
  * Try to execute critical section in a hardware memory transaction,
@@ -301,8 +279,7 @@ _rte_spinlock_recursive_trylock(rte_spinlock_recursive_t *slr);
  * @param slr
  *   A pointer to the recursive spinlock.
  */
-void
-_rte_spinlock_recursive_lock_tm(rte_spinlock_recursive_t *slr);
+void _rte_spinlock_recursive_lock_tm(rte_spinlock_recursive_t *slr);
 
 /**
  * Commit hardware memory transaction or release the recursive spinlock
@@ -311,8 +288,7 @@ _rte_spinlock_recursive_lock_tm(rte_spinlock_recursive_t *slr);
  * @param slr
  *   A pointer to the recursive spinlock.
  */
-void
-_rte_spinlock_recursive_unlock_tm(rte_spinlock_recursive_t *slr);
+void _rte_spinlock_recursive_unlock_tm(rte_spinlock_recursive_t *slr);
 
 /**
  * Try to execute critical section in a hardware memory transaction,
@@ -330,8 +306,7 @@ _rte_spinlock_recursive_unlock_tm(rte_spinlock_recursive_t *slr);
  *   1 if the hardware memory transaction is successfully started
  *   or lock is successfully taken; 0 otherwise.
  */
-int
-_rte_spinlock_recursive_trylock_tm(rte_spinlock_recursive_t *slr);
+int _rte_spinlock_recursive_trylock_tm(rte_spinlock_recursive_t *slr);
 
 /**
  * Return the Application thread ID of the execution unit.
@@ -345,8 +320,7 @@ _rte_spinlock_recursive_trylock_tm(rte_spinlock_recursive_t *slr);
  * @return
  *  Logical core ID (in EAL thread) or LCORE_ID_ANY (in non-EAL thread)
  */
-unsigned
-_rte_lcore_id(void);
+unsigned _rte_lcore_id(void);
 
 /**
  * Error number value, stored per-thread, which can be queried after
@@ -355,17 +329,15 @@ _rte_lcore_id(void);
  * Uses standard values from errno.h wherever possible, with a small number
  * of additional possible values for RTE-specific conditions.
  */
-int
-_rte_errno(void);
+int _rte_errno(void);
 
 /**
  * Return the number of TSC cycles since boot
  *
-  * @return
+ * @return
  *   the number of cycles
  */
-uint64_t
-_rte_get_tsc_cycles(void);
+uint64_t _rte_get_tsc_cycles(void);
 
 /**
  * Get the number of cycles since boot from the default timer.
@@ -373,8 +345,7 @@ _rte_get_tsc_cycles(void);
  * @return
  *   The number of cycles
  */
-uint64_t
-_rte_get_timer_cycles(void);
+uint64_t _rte_get_timer_cycles(void);
 
 /**
  * Get the number of cycles in one second for the default timer.
@@ -382,8 +353,7 @@ _rte_get_timer_cycles(void);
  * @return
  *   The number of cycles in one second.
  */
-uint64_t
-_rte_get_timer_hz(void);
+uint64_t _rte_get_timer_hz(void);
 
 /**
  * Wait at least ms milliseconds.
@@ -391,17 +361,13 @@ _rte_get_timer_hz(void);
  * @param ms
  *   The number of milliseconds to wait.
  */
-void
-_rte_delay_ms(unsigned ms);
+void _rte_delay_ms(unsigned ms);
 
-uint64_t
-_rte_rdtsc(void);
+uint64_t _rte_rdtsc(void);
 
-uint64_t
-_rte_rdtsc_precise(void);
+uint64_t _rte_rdtsc_precise(void);
 
-uint64_t
-_rte_get_tsc_cycles(void);
+uint64_t _rte_get_tsc_cycles(void);
 
 /**
  * Return a pointer to the mempool owning this object.
@@ -412,8 +378,7 @@ _rte_get_tsc_cycles(void);
  * @return
  *   A pointer to the mempool structure.
  */
-struct rte_mempool *
-_rte_mempool_from_obj(void *obj);
+struct rte_mempool *_rte_mempool_from_obj(void *obj);
 
 /**
  * Return the IO address of elt, which is an element of the pool mp.
@@ -425,8 +390,7 @@ _rte_mempool_from_obj(void *obj);
  *   If the mempool was created with MEMPOOL_F_NO_IOVA_CONTIG, the
  *   returned value is RTE_BAD_IOVA.
  */
-rte_iova_t
-_rte_mempool_virt2iova(const void *elt);
+rte_iova_t _rte_mempool_virt2iova(const void *elt);
 
 /**
  * Return a pointer to the private data in an mempool structure.
@@ -436,8 +400,7 @@ _rte_mempool_virt2iova(const void *elt);
  * @return
  *   A pointer to the private data.
  */
-void *
-_rte_mempool_get_priv(struct rte_mempool *mp);
+void *_rte_mempool_get_priv(struct rte_mempool *mp);
 
 /**
  * Flush a user-owned mempool cache to the specified mempool.
@@ -447,8 +410,8 @@ _rte_mempool_get_priv(struct rte_mempool *mp);
  * @param mp
  *   A pointer to the mempool.
  */
-void
-_rte_mempool_cache_flush(struct rte_mempool_cache *cache, struct rte_mempool *mp);
+void _rte_mempool_cache_flush(struct rte_mempool_cache *cache,
+                              struct rte_mempool *mp);
 
 /**
  * Get a pointer to the per-lcore default mempool cache.
@@ -460,8 +423,8 @@ _rte_mempool_cache_flush(struct rte_mempool_cache *cache, struct rte_mempool *mp
  * @return
  *   A pointer to the mempool cache or NULL if disabled or non-EAL thread.
  */
-struct rte_mempool_cache *
-_rte_mempool_default_cache(struct rte_mempool *mp, unsigned lcore_id);
+struct rte_mempool_cache *_rte_mempool_default_cache(struct rte_mempool *mp,
+                                                     unsigned lcore_id);
 
 /**
  * Put several objects back in the mempool.
@@ -475,9 +438,8 @@ _rte_mempool_default_cache(struct rte_mempool *mp, unsigned lcore_id);
  * @param cache
  *   A pointer to a mempool cache structure. May be NULL if not needed.
  */
-void
-_rte_mempool_generic_put(struct rte_mempool *mp, void * const *obj_table,
-			unsigned int n, struct rte_mempool_cache *cache);
+void _rte_mempool_generic_put(struct rte_mempool *mp, void *const *obj_table,
+                              unsigned int n, struct rte_mempool_cache *cache);
 
 /**
  * Put several objects back in the mempool.
@@ -493,8 +455,8 @@ _rte_mempool_generic_put(struct rte_mempool *mp, void * const *obj_table,
  * @param n
  *   The number of objects to add in the mempool from obj_table.
  */
-void
-_rte_mempool_put_bulk(struct rte_mempool *mp, void * const *obj_table, unsigned int n);
+void _rte_mempool_put_bulk(struct rte_mempool *mp, void *const *obj_table,
+                           unsigned int n);
 
 /**
  * Put one object back in the mempool.
@@ -508,8 +470,7 @@ _rte_mempool_put_bulk(struct rte_mempool *mp, void * const *obj_table, unsigned 
  * @param obj
  *   A pointer to the object to be added.
  */
-void
-_rte_mempool_put(struct rte_mempool *mp, void *obj);
+void _rte_mempool_put(struct rte_mempool *mp, void *obj);
 
 /**
  * Get several objects from the mempool.
@@ -531,9 +492,8 @@ _rte_mempool_put(struct rte_mempool *mp, void *obj);
  *   - 0: Success; objects taken.
  *   - -ENOENT: Not enough entries in the mempool; no object is retrieved.
  */
-int
-_rte_mempool_generic_get(struct rte_mempool *mp, void **obj_table,
-			unsigned int n, struct rte_mempool_cache *cache);
+int _rte_mempool_generic_get(struct rte_mempool *mp, void **obj_table,
+                             unsigned int n, struct rte_mempool_cache *cache);
 
 /**
  * Get several objects from the mempool.
@@ -557,8 +517,8 @@ _rte_mempool_generic_get(struct rte_mempool *mp, void **obj_table,
  *   - 0: Success; objects taken
  *   - -ENOENT: Not enough entries in the mempool; no object is retrieved.
  */
-int
-_rte_mempool_get_bulk(struct rte_mempool *mp, void **obj_table, unsigned int n);
+int _rte_mempool_get_bulk(struct rte_mempool *mp, void **obj_table,
+                          unsigned int n);
 
 /**
  * Get one object from the mempool.
@@ -580,9 +540,7 @@ _rte_mempool_get_bulk(struct rte_mempool *mp, void **obj_table, unsigned int n);
  *   - 0: Success; objects taken.
  *   - -ENOENT: Not enough entries in the mempool; no object is retrieved.
  */
-int
-_rte_mempool_get(struct rte_mempool *mp, void **obj_p);
-
+int _rte_mempool_get(struct rte_mempool *mp, void **obj_p);
 
 /**
  * @warning
@@ -608,8 +566,9 @@ _rte_mempool_get(struct rte_mempool *mp, void **obj_p);
  *   - -ENOBUFS: Not enough entries in the mempool; no object is retrieved.
  *   - -EOPNOTSUPP: The mempool driver does not support block dequeue
  */
-int __rte_experimental
-_rte_mempool_get_contig_blocks(struct rte_mempool *mp, void **first_obj_table, unsigned int n);
+int __rte_experimental _rte_mempool_get_contig_blocks(struct rte_mempool *mp,
+                                                      void **first_obj_table,
+                                                      unsigned int n);
 
 /**
  * Prefetch the first part of the mbuf
@@ -621,8 +580,7 @@ _rte_mempool_get_contig_blocks(struct rte_mempool *mp, void **first_obj_table, u
  * @param m
  *   The pointer to the mbuf.
  */
-void
-_rte_mbuf_prefetch_part1(struct rte_mbuf *m);
+void _rte_mbuf_prefetch_part1(struct rte_mbuf *m);
 
 /**
  * Prefetch the second part of the mbuf
@@ -635,8 +593,7 @@ _rte_mbuf_prefetch_part1(struct rte_mbuf *m);
  * @param m
  *   The pointer to the mbuf.
  */
-void
-_rte_mbuf_prefetch_part2(struct rte_mbuf *m);
+void _rte_mbuf_prefetch_part2(struct rte_mbuf *m);
 
 /**
  * Return the IO address of the beginning of the mbuf data
@@ -646,8 +603,7 @@ _rte_mbuf_prefetch_part2(struct rte_mbuf *m);
  * @return
  *   The IO address of the beginning of the mbuf data
  */
-rte_iova_t
-_rte_mbuf_data_iova(const struct rte_mbuf *mb);
+rte_iova_t _rte_mbuf_data_iova(const struct rte_mbuf *mb);
 
 /**
  * Return the default IO address of the beginning of the mbuf data
@@ -661,8 +617,7 @@ _rte_mbuf_data_iova(const struct rte_mbuf *mb);
  * @return
  *   The IO address of the beginning of the mbuf data
  */
-rte_iova_t
-_rte_mbuf_data_iova_default(const struct rte_mbuf *mb);
+rte_iova_t _rte_mbuf_data_iova_default(const struct rte_mbuf *mb);
 
 /**
  * Return the mbuf owning the data buffer address of an indirect mbuf.
@@ -672,8 +627,7 @@ _rte_mbuf_data_iova_default(const struct rte_mbuf *mb);
  * @return
  *   The address of the direct mbuf corresponding to buffer_addr.
  */
-struct rte_mbuf *
-_rte_mbuf_from_indirect(struct rte_mbuf *mi);
+struct rte_mbuf *_rte_mbuf_from_indirect(struct rte_mbuf *mi);
 
 /**
  * Return the buffer address embedded in the given mbuf.
@@ -683,8 +637,7 @@ _rte_mbuf_from_indirect(struct rte_mbuf *mi);
  * @return
  *   The address of the data buffer owned by the mbuf.
  */
-char *
-_rte_mbuf_to_baddr(struct rte_mbuf *md);
+char *_rte_mbuf_to_baddr(struct rte_mbuf *md);
 
 /**
  * Return the starting address of the private data area embedded in
@@ -698,8 +651,7 @@ _rte_mbuf_to_baddr(struct rte_mbuf *md);
  * @return
  *   The starting address of the private data area of the given mbuf.
  */
-void * __rte_experimental
-_rte_mbuf_to_priv(struct rte_mbuf *m);
+void *__rte_experimental _rte_mbuf_to_priv(struct rte_mbuf *m);
 
 /**
  * Reads the value of an mbuf's refcnt.
@@ -708,8 +660,7 @@ _rte_mbuf_to_priv(struct rte_mbuf *m);
  * @return
  *   Reference count number.
  */
-uint16_t
-_rte_mbuf_refcnt_read(const struct rte_mbuf *m);
+uint16_t _rte_mbuf_refcnt_read(const struct rte_mbuf *m);
 
 /**
  * Sets an mbuf's refcnt to a defined value.
@@ -718,8 +669,7 @@ _rte_mbuf_refcnt_read(const struct rte_mbuf *m);
  * @param new_value
  *   Value set
  */
-void
-_rte_mbuf_refcnt_set(struct rte_mbuf *m, uint16_t new_value);
+void _rte_mbuf_refcnt_set(struct rte_mbuf *m, uint16_t new_value);
 
 /**
  * Adds given value to an mbuf's refcnt and returns its new value.
@@ -730,8 +680,7 @@ _rte_mbuf_refcnt_set(struct rte_mbuf *m, uint16_t new_value);
  * @return
  *   Updated value
  */
-uint16_t
-_rte_mbuf_refcnt_update(struct rte_mbuf *m, int16_t value);
+uint16_t _rte_mbuf_refcnt_update(struct rte_mbuf *m, int16_t value);
 
 /**
  * Reads the refcnt of an external buffer.
@@ -752,8 +701,8 @@ _rte_mbuf_ext_refcnt_read(const struct rte_mbuf_ext_shared_info *shinfo);
  * @param new_value
  *   Value set
  */
-void
-_rte_mbuf_ext_refcnt_set(struct rte_mbuf_ext_shared_info *shinfo, uint16_t new_value);
+void _rte_mbuf_ext_refcnt_set(struct rte_mbuf_ext_shared_info *shinfo,
+                              uint16_t new_value);
 
 /**
  * Add given value to refcnt of an external buffer and return its new
@@ -766,8 +715,8 @@ _rte_mbuf_ext_refcnt_set(struct rte_mbuf_ext_shared_info *shinfo, uint16_t new_v
  * @return
  *   Updated value
  */
-uint16_t
-_rte_mbuf_ext_refcnt_update(struct rte_mbuf_ext_shared_info *shinfo, int16_t value);
+uint16_t _rte_mbuf_ext_refcnt_update(struct rte_mbuf_ext_shared_info *shinfo,
+                                     int16_t value);
 
 /**
  * Allocate an uninitialized mbuf from mempool *mp*.
@@ -788,8 +737,7 @@ _rte_mbuf_ext_refcnt_update(struct rte_mbuf_ext_shared_info *shinfo, int16_t val
  *   - The pointer to the new mbuf on success.
  *   - NULL if allocation failed.
  */
-struct rte_mbuf *
-_rte_mbuf_raw_alloc(struct rte_mempool *mp);
+struct rte_mbuf *_rte_mbuf_raw_alloc(struct rte_mempool *mp);
 
 /**
  * Put mbuf back into its original mempool.
@@ -805,8 +753,7 @@ _rte_mbuf_raw_alloc(struct rte_mempool *mp);
  * @param m
  *   The mbuf to be freed.
  */
-void
-_rte_mbuf_raw_free(struct rte_mbuf *m);
+void _rte_mbuf_raw_free(struct rte_mbuf *m);
 
 /**
  * Get the data room size of mbufs stored in a pktmbuf_pool
@@ -819,8 +766,7 @@ _rte_mbuf_raw_free(struct rte_mbuf *m);
  * @return
  *   The data room size of mbufs stored in this mempool.
  */
-uint16_t
-_rte_pktmbuf_data_room_size(struct rte_mempool *mp);
+uint16_t _rte_pktmbuf_data_room_size(struct rte_mempool *mp);
 
 /**
  * Get the application private size of mbufs stored in a pktmbuf_pool
@@ -834,8 +780,7 @@ _rte_pktmbuf_data_room_size(struct rte_mempool *mp);
  * @return
  *   The private size of mbufs stored in this mempool.
  */
-uint16_t
-_rte_pktmbuf_priv_size(struct rte_mempool *mp);
+uint16_t _rte_pktmbuf_priv_size(struct rte_mempool *mp);
 
 /**
  * Reset the data_off field of a packet mbuf to its default value.
@@ -845,8 +790,7 @@ _rte_pktmbuf_priv_size(struct rte_mempool *mp);
  * @param m
  *   The packet mbuf's data_off field has to be reset.
  */
-void
-_rte_pktmbuf_reset_headroom(struct rte_mbuf *m);
+void _rte_pktmbuf_reset_headroom(struct rte_mbuf *m);
 
 /**
  * Reset the fields of a packet mbuf to their default values.
@@ -856,8 +800,7 @@ _rte_pktmbuf_reset_headroom(struct rte_mbuf *m);
  * @param m
  *   The packet mbuf to be resetted.
  */
-void
-_rte_pktmbuf_reset(struct rte_mbuf *m);
+void _rte_pktmbuf_reset(struct rte_mbuf *m);
 
 /**
  * Allocate a new mbuf from a mempool.
@@ -872,8 +815,7 @@ _rte_pktmbuf_reset(struct rte_mbuf *m);
  *   - The pointer to the new mbuf on success.
  *   - NULL if allocation failed.
  */
-struct rte_mbuf *
-_rte_pktmbuf_alloc(struct rte_mempool *mp);
+struct rte_mbuf *_rte_pktmbuf_alloc(struct rte_mempool *mp);
 
 /**
  * Allocate a bulk of mbufs, initialize refcnt and reset the fields to default
@@ -889,8 +831,8 @@ _rte_pktmbuf_alloc(struct rte_mempool *mp);
  *   - 0: Success
  *   - -ENOENT: Not enough entries in the mempool; no mbufs are retrieved.
  */
-int
-_rte_pktmbuf_alloc_bulk(struct rte_mempool *pool, struct rte_mbuf **mbufs, unsigned count);
+int _rte_pktmbuf_alloc_bulk(struct rte_mempool *pool, struct rte_mbuf **mbufs,
+                            unsigned count);
 
 /**
  * Initialize shared data at the end of an external buffer before attaching
@@ -926,8 +868,8 @@ _rte_pktmbuf_alloc_bulk(struct rte_mempool *pool, struct rte_mbuf **mbufs, unsig
  */
 struct rte_mbuf_ext_shared_info *
 _rte_pktmbuf_ext_shinfo_init_helper(void *buf_addr, uint16_t *buf_len,
-	rte_mbuf_extbuf_free_callback_t free_cb, void *fcb_opaque);
-
+                                    rte_mbuf_extbuf_free_callback_t free_cb,
+                                    void *fcb_opaque);
 
 /**
  * Attach an external buffer to a mbuf.
@@ -992,10 +934,9 @@ _rte_pktmbuf_ext_shinfo_init_helper(void *buf_addr, uint16_t *buf_len,
  * @param shinfo
  *   User-provided memory for shared data of the external buffer.
  */
-void __rte_experimental
-_rte_pktmbuf_attach_extbuf(struct rte_mbuf *m, void *buf_addr,
-	rte_iova_t buf_iova, uint16_t buf_len,
-	struct rte_mbuf_ext_shared_info *shinfo);
+void __rte_experimental _rte_pktmbuf_attach_extbuf(
+    struct rte_mbuf *m, void *buf_addr, rte_iova_t buf_iova, uint16_t buf_len,
+    struct rte_mbuf_ext_shared_info *shinfo);
 
 /**
  * Attach packet mbuf to another packet mbuf.
@@ -1018,8 +959,7 @@ _rte_pktmbuf_attach_extbuf(struct rte_mbuf *m, void *buf_addr,
  * @param m
  *   The packet mbuf we're attaching to.
  */
-void
-_rte_pktmbuf_attach(struct rte_mbuf *mi, struct rte_mbuf *m);
+void _rte_pktmbuf_attach(struct rte_mbuf *mi, struct rte_mbuf *m);
 
 /**
  * Detach a packet mbuf from external buffer or direct buffer.
@@ -1034,8 +974,7 @@ _rte_pktmbuf_attach(struct rte_mbuf *mi, struct rte_mbuf *m);
  * @param m
  *   The indirect attached packet mbuf.
  */
-void
-_rte_pktmbuf_detach(struct rte_mbuf *m);
+void _rte_pktmbuf_detach(struct rte_mbuf *m);
 
 /**
  * Decrease reference counter and unlink a mbuf segment
@@ -1051,8 +990,7 @@ _rte_pktmbuf_detach(struct rte_mbuf *m);
  *   - (m) if it is the last reference. It can be recycled or freed.
  *   - (NULL) if the mbuf still has remaining references on it.
  */
-struct rte_mbuf *
-_rte_pktmbuf_prefree_seg(struct rte_mbuf *m);
+struct rte_mbuf *_rte_pktmbuf_prefree_seg(struct rte_mbuf *m);
 
 /**
  * Free a segment of a packet mbuf into its original mempool.
@@ -1063,8 +1001,7 @@ _rte_pktmbuf_prefree_seg(struct rte_mbuf *m);
  * @param m
  *   The packet mbuf segment to be freed.
  */
-void
-_rte_pktmbuf_free_seg(struct rte_mbuf *m);
+void _rte_pktmbuf_free_seg(struct rte_mbuf *m);
 
 /**
  * Free a packet mbuf back into its original mempool.
@@ -1075,8 +1012,7 @@ _rte_pktmbuf_free_seg(struct rte_mbuf *m);
  * @param m
  *   The packet mbuf to be freed. If NULL, the function does nothing.
  */
-void
-_rte_pktmbuf_free(struct rte_mbuf *m);
+void _rte_pktmbuf_free(struct rte_mbuf *m);
 
 /**
  * Creates a "clone" of the given packet mbuf.
@@ -1095,8 +1031,8 @@ _rte_pktmbuf_free(struct rte_mbuf *m);
  *   - The pointer to the new "clone" mbuf on success.
  *   - NULL if allocation fails.
  */
-struct rte_mbuf *
-_rte_pktmbuf_clone(struct rte_mbuf *md, struct rte_mempool *mp);
+struct rte_mbuf *_rte_pktmbuf_clone(struct rte_mbuf *md,
+                                    struct rte_mempool *mp);
 
 /**
  * Adds given value to the refcnt of all packet mbuf segments.
@@ -1109,8 +1045,7 @@ _rte_pktmbuf_clone(struct rte_mbuf *md, struct rte_mempool *mp);
  * @param v
  *   The value to add to the mbuf's segments refcnt.
  */
-void
-_rte_pktmbuf_refcnt_update(struct rte_mbuf *m, int16_t v);
+void _rte_pktmbuf_refcnt_update(struct rte_mbuf *m, int16_t v);
 
 /**
  * Get the headroom in a packet mbuf.
@@ -1120,8 +1055,7 @@ _rte_pktmbuf_refcnt_update(struct rte_mbuf *m, int16_t v);
  * @return
  *   The length of the headroom.
  */
-uint16_t
-_rte_pktmbuf_headroom(const struct rte_mbuf *m);
+uint16_t _rte_pktmbuf_headroom(const struct rte_mbuf *m);
 
 /**
  * Get the tailroom of a packet mbuf.
@@ -1131,8 +1065,7 @@ _rte_pktmbuf_headroom(const struct rte_mbuf *m);
  * @return
  *   The length of the tailroom.
  */
-uint16_t
-_rte_pktmbuf_tailroom(const struct rte_mbuf *m);
+uint16_t _rte_pktmbuf_tailroom(const struct rte_mbuf *m);
 
 /**
  * Get the last segment of the packet.
@@ -1142,8 +1075,7 @@ _rte_pktmbuf_tailroom(const struct rte_mbuf *m);
  * @return
  *   The last segment of the given mbuf.
  */
-struct rte_mbuf *
-_rte_pktmbuf_lastseg(struct rte_mbuf *m);
+struct rte_mbuf *_rte_pktmbuf_lastseg(struct rte_mbuf *m);
 
 /**
  * Prepend len bytes to an mbuf data area.
@@ -1160,8 +1092,7 @@ _rte_pktmbuf_lastseg(struct rte_mbuf *m);
  *   A pointer to the start of the newly prepended data, or
  *   NULL if there is not enough headroom space in the first segment
  */
-char *
-_rte_pktmbuf_prepend(struct rte_mbuf *m, uint16_t len);
+char *_rte_pktmbuf_prepend(struct rte_mbuf *m, uint16_t len);
 
 /**
  * Append len bytes to an mbuf.
@@ -1178,8 +1109,7 @@ _rte_pktmbuf_prepend(struct rte_mbuf *m, uint16_t len);
  *   A pointer to the start of the newly appended data, or
  *   NULL if there is not enough tailroom space in the last segment
  */
-char *
-_rte_pktmbuf_append(struct rte_mbuf *m, uint16_t len);
+char *_rte_pktmbuf_append(struct rte_mbuf *m, uint16_t len);
 
 /**
  * Remove len bytes at the beginning of an mbuf.
@@ -1195,8 +1125,7 @@ _rte_pktmbuf_append(struct rte_mbuf *m, uint16_t len);
  * @return
  *   A pointer to the new start of the data.
  */
-char *
-_rte_pktmbuf_adj(struct rte_mbuf *m, uint16_t len);
+char *_rte_pktmbuf_adj(struct rte_mbuf *m, uint16_t len);
 
 /**
  * Remove len bytes of data at the end of the mbuf.
@@ -1212,8 +1141,7 @@ _rte_pktmbuf_adj(struct rte_mbuf *m, uint16_t len);
  *   - 0: On success.
  *   - -1: On error.
  */
-int
-_rte_pktmbuf_trim(struct rte_mbuf *m, uint16_t len);
+int _rte_pktmbuf_trim(struct rte_mbuf *m, uint16_t len);
 
 /**
  * Test if mbuf data is contiguous.
@@ -1224,8 +1152,7 @@ _rte_pktmbuf_trim(struct rte_mbuf *m, uint16_t len);
  *   - 1, if all data is contiguous (one segment).
  *   - 0, if there is several segments.
  */
-int
-_rte_pktmbuf_is_contiguous(const struct rte_mbuf *m);
+int _rte_pktmbuf_is_contiguous(const struct rte_mbuf *m);
 
 /**
  * Read len data bytes in a mbuf at specified offset.
@@ -1247,8 +1174,8 @@ _rte_pktmbuf_is_contiguous(const struct rte_mbuf *m);
  *   The pointer to the data, either in the mbuf if it is contiguous,
  *   or in the user buffer. If mbuf is too small, NULL is returned.
  */
-const void *
-_rte_pktmbuf_read(const struct rte_mbuf *m, uint32_t off, uint32_t len, void *buf);
+const void *_rte_pktmbuf_read(const struct rte_mbuf *m, uint32_t off,
+                              uint32_t len, void *buf);
 
 /**
  * Chain an mbuf to another, thereby creating a segmented packet.
@@ -1266,8 +1193,7 @@ _rte_pktmbuf_read(const struct rte_mbuf *m, uint32_t off, uint32_t len, void *bu
  *   - 0, on success.
  *   - -EOVERFLOW, if the chain segment limit exceeded
  */
-int
-_rte_pktmbuf_chain(struct rte_mbuf *head, struct rte_mbuf *tail);
+int _rte_pktmbuf_chain(struct rte_mbuf *head, struct rte_mbuf *tail);
 
 /**
  * Validate general requirements for Tx offload in mbuf.
@@ -1279,8 +1205,7 @@ _rte_pktmbuf_chain(struct rte_mbuf *head, struct rte_mbuf *tail);
  * @return
  *   0 if packet is valid
  */
-int
-_rte_validate_tx_offload(const struct rte_mbuf *m);
+int _rte_validate_tx_offload(const struct rte_mbuf *m);
 
 /**
  * Linearize data in mbuf.
@@ -1294,8 +1219,7 @@ _rte_validate_tx_offload(const struct rte_mbuf *m);
  *   - 0, on success
  *   - -1, on error
  */
-int
-_rte_pktmbuf_linearize(struct rte_mbuf *mbuf);
+int _rte_pktmbuf_linearize(struct rte_mbuf *mbuf);
 
 /**
  *
@@ -1379,9 +1303,8 @@ _rte_pktmbuf_linearize(struct rte_mbuf *mbuf);
  *   of pointers to *rte_mbuf* structures effectively supplied to the
  *   *rx_pkts* array.
  */
-uint16_t
-_rte_eth_rx_burst(uint16_t port_id, uint16_t queue_id,
-		 struct rte_mbuf **rx_pkts, const uint16_t nb_pkts);
+uint16_t _rte_eth_rx_burst(uint16_t port_id, uint16_t queue_id,
+                           struct rte_mbuf **rx_pkts, const uint16_t nb_pkts);
 
 /**
  * Get the number of used descriptors of a rx queue
@@ -1395,8 +1318,7 @@ _rte_eth_rx_burst(uint16_t port_id, uint16_t queue_id,
  *     (-EINVAL) if *port_id* or *queue_id* is invalid
  *     (-ENOTSUP) if the device does not support this function
  */
-int
-_rte_eth_rx_queue_count(uint16_t port_id, uint16_t queue_id);
+int _rte_eth_rx_queue_count(uint16_t port_id, uint16_t queue_id);
 
 /**
  * Check if the DD bit of the specific RX descriptor in the queue has been set
@@ -1413,8 +1335,8 @@ _rte_eth_rx_queue_count(uint16_t port_id, uint16_t queue_id);
  *  - (-ENODEV) if *port_id* invalid.
  *  - (-ENOTSUP) if the device does not support this function
  */
-int
-_rte_eth_rx_descriptor_done(uint16_t port_id, uint16_t queue_id, uint16_t offset);
+int _rte_eth_rx_descriptor_done(uint16_t port_id, uint16_t queue_id,
+                                uint16_t offset);
 
 /**
  * Check the status of a Rx descriptor in the queue
@@ -1449,8 +1371,8 @@ _rte_eth_rx_descriptor_done(uint16_t port_id, uint16_t queue_id, uint16_t offset
  *  - (-ENOTSUP) if the device does not support this function.
  *  - (-ENODEV) bad port or queue (only if compiled with debug).
  */
-int
-_rte_eth_rx_descriptor_status(uint16_t port_id, uint16_t queue_id, uint16_t offset);
+int _rte_eth_rx_descriptor_status(uint16_t port_id, uint16_t queue_id,
+                                  uint16_t offset);
 
 /**
  * Check the status of a Tx descriptor in the queue.
@@ -1485,8 +1407,8 @@ _rte_eth_rx_descriptor_status(uint16_t port_id, uint16_t queue_id, uint16_t offs
  *  - (-ENOTSUP) if the device does not support this function.
  *  - (-ENODEV) bad port or queue (only if compiled with debug).
  */
-int
-_rte_eth_tx_descriptor_status(uint16_t port_id,	uint16_t queue_id, uint16_t offset);
+int _rte_eth_tx_descriptor_status(uint16_t port_id, uint16_t queue_id,
+                                  uint16_t offset);
 
 /**
  * Send a burst of output packets on a transmit queue of an Ethernet device.
@@ -1554,10 +1476,8 @@ _rte_eth_tx_descriptor_status(uint16_t port_id,	uint16_t queue_id, uint16_t offs
  *   the transmit ring. The return value can be less than the value of the
  *   *tx_pkts* parameter when the transmit ring is full or has been filled up.
  */
-uint16_t
-_rte_eth_tx_burst(uint16_t port_id, uint16_t queue_id,
-		 struct rte_mbuf **tx_pkts, uint16_t nb_pkts);
-
+uint16_t _rte_eth_tx_burst(uint16_t port_id, uint16_t queue_id,
+                           struct rte_mbuf **tx_pkts, uint16_t nb_pkts);
 
 /**
  * Process a burst of output packets on a transmit queue of an Ethernet device.
@@ -1611,9 +1531,8 @@ _rte_eth_tx_burst(uint16_t port_id, uint16_t queue_id,
  *   - -ENOTSUP: the offload feature is not supported by the hardware
  *
  */
-uint16_t
-_rte_eth_tx_prepare(uint16_t port_id, uint16_t queue_id,
-		struct rte_mbuf **tx_pkts, uint16_t nb_pkts);
+uint16_t _rte_eth_tx_prepare(uint16_t port_id, uint16_t queue_id,
+                             struct rte_mbuf **tx_pkts, uint16_t nb_pkts);
 
 /**
  * Send any packets queued up for transmission on a port and HW queue
@@ -1637,8 +1556,8 @@ _rte_eth_tx_prepare(uint16_t port_id, uint16_t queue_id,
  *   The number of packets successfully sent to the Ethernet device. The error
  *   callback is called for any packets which could not be sent.
  */
-uint16_t
-_rte_eth_tx_buffer_flush(uint16_t port_id, uint16_t queue_id, struct rte_eth_dev_tx_buffer *buffer);
+uint16_t _rte_eth_tx_buffer_flush(uint16_t port_id, uint16_t queue_id,
+                                  struct rte_eth_dev_tx_buffer *buffer);
 
 /**
  * Buffer a single packet for future transmission on a port and queue
@@ -1670,9 +1589,9 @@ _rte_eth_tx_buffer_flush(uint16_t port_id, uint16_t queue_id, struct rte_eth_dev
  *     causing N packets to be sent, and the error callback to be called for
  *     the rest.
  */
-uint16_t
-_rte_eth_tx_buffer(uint16_t port_id, uint16_t queue_id,
-		struct rte_eth_dev_tx_buffer *buffer, struct rte_mbuf *tx_pkt);
+uint16_t _rte_eth_tx_buffer(uint16_t port_id, uint16_t queue_id,
+                            struct rte_eth_dev_tx_buffer *buffer,
+                            struct rte_mbuf *tx_pkt);
 
 /**
  * Extract VLAN tag information into mbuf
@@ -1685,8 +1604,7 @@ _rte_eth_tx_buffer(uint16_t port_id, uint16_t queue_id,
  *   - 0: Success
  *   - 1: not a vlan packet
  */
-int
-_rte_vlan_strip(struct rte_mbuf *m);
+int _rte_vlan_strip(struct rte_mbuf *m);
 
 /**
  * Insert VLAN tag into mbuf.
@@ -1700,5 +1618,4 @@ _rte_vlan_strip(struct rte_mbuf *m);
  *   -EPERM: mbuf is is shared overwriting would be unsafe
  *   -ENOSPC: not enough headroom in mbuf
  */
-int
-_rte_vlan_insert(struct rte_mbuf **m);
+int _rte_vlan_insert(struct rte_mbuf **m);

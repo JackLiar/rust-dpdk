@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use ffi;
+use crate::ffi;
 
 /// Get the measured frequency of the RDTSC counter
 #[inline]

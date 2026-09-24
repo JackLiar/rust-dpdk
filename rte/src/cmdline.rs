@@ -9,12 +9,13 @@ use std::path::Path;
 use std::ptr;
 use std::string;
 
+use anyhow::Result;
 use libc;
 
-use ffi;
-
-use errors::{AsResult, ErrorKind::CmdLineParseError, Result};
-use ether;
+use crate::errors::{AsResult, ErrorKind::CmdLineParseError};
+use crate::ether;
+use crate::ffi;
+use crate::{rte_check, to_cptr};
 
 pub type RawTokenHeader = ffi::cmdline_token_hdr;
 pub type RawTokenPtr = *const RawTokenHeader;
@@ -50,7 +51,7 @@ impl<T> Token<T> {
 impl<T> Drop for Token<T> {
     fn drop(&mut self) {
         if let Token::Str(ref token, _) = *self {
-            unsafe { libc::free(token.string_data.str as *mut libc::c_void) }
+            unsafe { libc::free(token.string_data.str_ as *mut libc::c_void) }
         }
     }
 }
@@ -59,7 +60,7 @@ pub type NumType = ffi::cmdline_numtype::Type;
 
 pub type RawFixedStr = ffi::cmdline_fixed_string_t;
 pub type RawIpNetAddr = ffi::cmdline_ipaddr_t;
-pub type RawEtherAddr = ffi::ether_addr;
+pub type RawEtherAddr = ffi::rte_ether_addr;
 pub type RawPortList = ffi::cmdline_portlist_t;
 
 pub struct FixedStr(RawFixedStr);
@@ -143,7 +144,7 @@ impl EtherAddr {
 pub struct PortList(RawPortList);
 
 impl PortList {
-    pub fn to_portlist<'a>(&'a self) -> Box<Iterator<Item = u32> + 'a> {
+    pub fn to_portlist<'a>(&'a self) -> Box<dyn Iterator<Item = u32> + 'a> {
         Box::new((0..32).filter(move |portid| ((1 << portid) as u32 & self.0.map) != 0))
     }
 }
@@ -177,7 +178,7 @@ macro_rules! TOKEN_STRING_INITIALIZER {
                     offset: offset_of!($container, $field) as u32,
                 },
                 string_data: $crate::ffi::cmdline_token_string_data {
-                    str: ::std::ptr::null(),
+                    str_: ::std::ptr::null(),
                 },
             },
             ::std::marker::PhantomData,
@@ -197,7 +198,7 @@ macro_rules! TOKEN_STRING_INITIALIZER {
                     ops: unsafe { &mut $crate::ffi::cmdline_token_string_ops },
                     offset: offset_of!($container, $field) as u32,
                 },
-                string_data: $crate::ffi::cmdline_token_string_data { str: p as *const i8 },
+                string_data: $crate::ffi::cmdline_token_string_data { str_: p as *const i8 },
             },
             ::std::marker::PhantomData,
         )
@@ -207,28 +208,28 @@ macro_rules! TOKEN_STRING_INITIALIZER {
 #[macro_export]
 macro_rules! TOKEN_NUM_INITIALIZER {
     ($container:path, $field:ident, u8) => {
-        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::UINT8)
+        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::RTE_UINT8)
     };
     ($container:path, $field:ident, u16) => {
-        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::UINT16)
+        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::RTE_UINT16)
     };
     ($container:path, $field:ident, u32) => {
-        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::UINT32)
+        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::RTE_UINT32)
     };
     ($container:path, $field:ident, u64) => {
-        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::UINT64)
+        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::RTE_UINT64)
     };
     ($container:path, $field:ident, i8) => {
-        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::INT8)
+        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::RTE_INT8)
     };
     ($container:path, $field:ident, i16) => {
-        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::INT16)
+        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::RTE_INT16)
     };
     ($container:path, $field:ident, i32) => {
-        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::INT32)
+        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::RTE_INT32)
     };
     ($container:path, $field:ident, i64) => {
-        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::INT64)
+        TOKEN_NUM_INITIALIZER!($container, $field, $crate::ffi::cmdline_numtype::RTE_INT64)
     };
 
     ($container:path, $field:ident, $numtype:expr) => {
@@ -354,9 +355,10 @@ struct InstHandlerContext<T, D> {
 }
 
 unsafe extern "C" fn _inst_handler_stub<T, D>(inst: *mut c_void, cl: *mut RawCmdLine, ctxt: *mut c_void) {
-    let ctxt = Box::from_raw(ctxt as *mut InstHandlerContext<T, D>);
-
-    (ctxt.handler)((inst as *mut T).as_mut().unwrap(), &CmdLine::Borrowed(cl), ctxt.data);
+    unsafe {
+        let ctxt = Box::from_raw(ctxt as *mut InstHandlerContext<T, D>);
+        (ctxt.handler)((inst as *mut T).as_mut().unwrap(), &CmdLine::Borrowed(cl), ctxt.data);
+    }
 }
 
 pub type RawInstPtr = *mut ffi::cmdline_inst;
@@ -397,7 +399,7 @@ pub fn inst<T, D>(handler: InstHandler<T, D>, data: Option<D>, help: &'static st
         ptr::copy_nonoverlapping(
             tokens
                 .iter()
-                .map(|ref token| token.as_raw())
+                .map(|token| token.as_raw())
                 .collect::<Vec<RawTokenPtr>>()
                 .as_ptr(),
             &((*inst).tokens) as *const _ as *mut *const _,
@@ -415,7 +417,7 @@ pub fn new(insts: &[&Inst]) -> Context {
         ptr::copy_nonoverlapping(
             insts
                 .iter()
-                .map(|ref inst| inst.as_raw())
+                .map(|inst| inst.as_raw())
                 .collect::<Vec<RawInstPtr>>()
                 .as_ptr(),
             p,
@@ -436,7 +438,7 @@ impl Drop for Context {
 
 impl Context {
     pub fn open_stdin(&self, prompt: &str) -> Result<StdInCmdLine> {
-        let cl = unsafe { ffi::cmdline_stdin_new(self.0 as *mut *mut _, try!(to_cptr!(prompt))) };
+        let cl = unsafe { ffi::cmdline_stdin_new(self.0 as *mut *mut _, to_cptr!(prompt)?) };
 
         rte_check!(cl, NonNull; ok => { StdInCmdLine(CmdLine::Owned(cl)) })
     }
@@ -445,7 +447,7 @@ impl Context {
         let cl = unsafe {
             ffi::cmdline_file_new(
                 self.0 as *mut *mut _,
-                try!(to_cptr!(prompt)),
+                to_cptr!(prompt)?,
                 path.as_ref().as_os_str().to_str().unwrap().as_ptr() as *const i8,
             )
         };
@@ -476,19 +478,19 @@ impl DerefMut for StdInCmdLine {
     }
 }
 
-#[repr(u32)]
-#[derive(Clone, Copy, Debug, PartialEq, FromPrimitive, ToPrimitive)]
-pub enum ReadlineStatus {
-    Init = ffi::rdline_status::RDLINE_INIT,
-    Running = ffi::rdline_status::RDLINE_RUNNING,
-    Exited = ffi::rdline_status::RDLINE_EXITED,
-}
+// #[repr(u32)]
+// #[derive(Clone, Copy, Debug, PartialEq, FromPrimitive, ToPrimitive)]
+// pub enum ReadlineStatus {
+//     Init = ffi::rdline_status::RDLINE_INIT,
+//     Running = ffi::rdline_status::RDLINE_RUNNING,
+//     Exited = ffi::rdline_status::RDLINE_EXITED,
+// }
 
-impl From<u32> for ReadlineStatus {
-    fn from(status: u32) -> Self {
-        unsafe { mem::transmute(status) }
-    }
-}
+// impl From<u32> for ReadlineStatus {
+//     fn from(status: u32) -> Self {
+//         unsafe { mem::transmute(status) }
+//     }
+// }
 
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, FromPrimitive, ToPrimitive)]
@@ -571,7 +573,7 @@ impl CmdLine {
 
     pub fn print<T: string::ToString>(&self, s: T) -> Result<&Self> {
         unsafe {
-            ffi::cmdline_printf(self.as_raw(), try!(to_cptr!(s.to_string())));
+            ffi::cmdline_printf(self.as_raw(), to_cptr!(s.to_string())?);
         }
 
         Ok(self)
@@ -579,7 +581,7 @@ impl CmdLine {
 
     pub fn println<T: string::ToString>(&self, s: T) -> Result<&Self> {
         unsafe {
-            ffi::cmdline_printf(self.as_raw(), try!(to_cptr!(format!("{}\n", s.to_string()))));
+            ffi::cmdline_printf(self.as_raw(), to_cptr!(format!("{}\n", s.to_string()))?);
         }
 
         Ok(self)
@@ -601,18 +603,12 @@ impl CmdLine {
         self
     }
 
-    pub fn poll(&self) -> Result<ReadlineStatus> {
-        let status = unsafe { ffi::cmdline_poll(self.as_raw()) };
-
-        rte_check!(status; ok => { ReadlineStatus::from(status as u32) })
-    }
-
     pub fn quit(&self) {
         unsafe { ffi::cmdline_quit(self.as_raw()) }
     }
 
     pub fn parse<T: string::ToString>(&self, buf: T) -> Result<&Self> {
-        let status = unsafe { ffi::cmdline_parse(self.as_raw(), try!(to_cptr!(buf.to_string()))) };
+        let status = unsafe { ffi::cmdline_parse(self.as_raw(), to_cptr!(buf.to_string())?) };
 
         status.ok_or(CmdLineParseError(status)).map(|_| self)
     }
@@ -626,7 +622,7 @@ impl CmdLine {
         let status = unsafe {
             ffi::cmdline_complete(
                 self.as_raw(),
-                try!(to_cptr!(buf.to_string())),
+                to_cptr!(buf.to_string())?,
                 state as *mut _ as *mut i32,
                 dst.as_mut_ptr() as *mut i8,
                 dst.len() as u32,

@@ -2,7 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use libc;
 
-use ffi;
+use crate::ffi;
 
 pub type RawSpinLock = ffi::rte_spinlock_t;
 pub type RawSpinLockPtr = *mut ffi::rte_spinlock_t;

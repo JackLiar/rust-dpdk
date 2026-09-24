@@ -4,7 +4,7 @@ use rte::cmdline::*;
 use rte::ethdev::{EthDevice, EthDeviceInfo};
 use rte::{self, *};
 
-use ethtool::*;
+use crate::ethtool::AppConfig;
 
 struct CmdGetParams {
     cmd: FixedStr,
@@ -302,7 +302,7 @@ impl CmdVlanParams {
                         self.vlan_id, self.port, err
                     ),
                 },
-                mode @ _ => format!("Error: Bad mode {}", mode),
+                mode => format!("Error: Bad mode {}", mode),
             }
         })
         .unwrap();

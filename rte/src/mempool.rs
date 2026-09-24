@@ -29,19 +29,22 @@ use std::os::raw::{c_uint, c_void};
 use std::os::unix::io::AsRawFd;
 use std::ptr::{self, NonNull};
 
+use anyhow::Result;
 use cfile;
-use ffi;
+use cfile::foreign_types::ForeignType;
 use libc;
 
-use errors::{AsResult, Result};
-use lcore;
-use memory::SocketId;
-use ring;
-use utils::{AsCString, AsRaw, CallbackContext, FromRaw, IntoRaw, Raw};
+use crate::errors::AsResult;
+use crate::ffi;
+use crate::lcore;
+use crate::memory::SocketId;
+use crate::ring;
+use crate::utils::{AsCString, AsRaw, CallbackContext, FromRaw, IntoRaw, Raw};
+use crate::{raw, rte_check, to_cptr};
 
 pub use ffi::{
-    MEMPOOL_PG_NUM_DEFAULT, RTE_MEMPOOL_ALIGN, RTE_MEMPOOL_ALIGN_MASK, RTE_MEMPOOL_HEADER_COOKIE1,
-    RTE_MEMPOOL_HEADER_COOKIE2, RTE_MEMPOOL_MZ_FORMAT, RTE_MEMPOOL_MZ_PREFIX, RTE_MEMPOOL_TRAILER_COOKIE,
+    RTE_MEMPOOL_ALIGN, RTE_MEMPOOL_ALIGN_MASK, RTE_MEMPOOL_HEADER_COOKIE1, RTE_MEMPOOL_HEADER_COOKIE2,
+    RTE_MEMPOOL_MZ_FORMAT, RTE_MEMPOOL_MZ_PREFIX, RTE_MEMPOOL_TRAILER_COOKIE,
 };
 
 lazy_static! {
@@ -59,7 +62,7 @@ bitflags! {
         /// Default get is "single-consumer".
         const MEMPOOL_F_SC_GET          = ffi::MEMPOOL_F_SC_GET;
         /// Internal: pool is created.
-        const MEMPOOL_F_POOL_CREATED    = ffi::MEMPOOL_F_POOL_CREATED;
+        // const MEMPOOL_F_POOL_CREATED    = ffi::MEMPOOL_F_POOL_CREATED;
         /// Don't need IOVA contiguous objs.
         const MEMPOOL_F_NO_IOVA_CONTIG  = ffi::MEMPOOL_F_NO_IOVA_CONTIG;
     }
@@ -73,7 +76,7 @@ pub trait Pooled<T>: Raw<T> {
 
     /// Return the IO address of elt, which is an element of the pool mp.
     fn virt2iova(&self) -> ffi::rte_iova_t {
-        unsafe { ffi::_rte_mempool_virt2iova(self.as_raw() as *mut _ as *const _) }
+        unsafe { ffi::_rte_mempool_virt2iova(self.as_raw() as *const _) }
     }
 }
 
@@ -106,7 +109,7 @@ impl MemoryPool {
 
     /// Name of mempool.
     pub fn name(&self) -> &str {
-        unsafe { CStr::from_ptr((&self.name[..]).as_ptr()).to_str().unwrap() }
+        unsafe { CStr::from_ptr(self.name[..].as_ptr()).to_str().unwrap() }
     }
 
     /// Free a mempool
@@ -115,7 +118,7 @@ impl MemoryPool {
     /// memory referenced by the mempool. The objects must not be used by
     /// other cores as they will be freed.
     fn free(&mut self) {
-        unsafe { ffi::rte_mempool_free(self.as_raw()) }
+        unsafe { ffi::rte_mempool_free(self.as_raw_mut()) }
     }
 
     /// Return the number of entries in the mempool.
@@ -124,7 +127,7 @@ impl MemoryPool {
     /// all lcores, so it should not be used in a data path, but only for
     /// debug purposes. User-owned mempool caches are not accounted for.
     pub fn avail_count(&self) -> usize {
-        unsafe { ffi::rte_mempool_avail_count(self.as_raw()) as usize }
+        unsafe { ffi::rte_mempool_avail_count(self.as_raw_mut()) as usize }
     }
 
     /// Return the number of elements which have been allocated from the mempool
@@ -153,19 +156,19 @@ impl MemoryPool {
     /// have a correct value. If not, a panic will occur.
     ///
     pub fn audit(&self) {
-        unsafe { ffi::rte_mempool_audit(self.as_raw()) }
+        unsafe { ffi::rte_mempool_audit(self.as_raw_mut()) }
     }
 
     /// Return a pointer to the private data in an mempool structure.
     pub fn get_priv<T>(&self) -> *const T {
-        unsafe { ffi::_rte_mempool_get_priv(self.as_raw()) as *const _ }
+        unsafe { ffi::_rte_mempool_get_priv(self.as_raw_mut()) as *const _ }
     }
 
     /// Dump the status of the mempool to the console.
     pub fn dump<S: AsRawFd>(&self, s: &S) -> Result<()> {
         let mut f = cfile::fdopen(s, "w")?;
 
-        unsafe { ffi::rte_mempool_dump(&mut **f as *mut _ as *mut _, self.as_raw()) };
+        unsafe { ffi::rte_mempool_dump(f.as_ptr() as *mut _, self.as_raw_mut()) };
 
         Ok(())
     }
@@ -174,7 +177,7 @@ impl MemoryPool {
     pub fn list_dump<S: AsRawFd>(s: &S) -> Result<()> {
         let mut f = cfile::fdopen(s, "w")?;
 
-        unsafe { ffi::rte_mempool_list_dump(&mut **f as *mut _ as *mut _) };
+        unsafe { ffi::rte_mempool_list_dump(f.as_ptr() as *mut _) };
 
         Ok(())
     }
@@ -191,7 +194,7 @@ impl MemoryPool {
     pub fn walk<T, O>(&mut self, callback: ObjectCallback<T, O>, arg: Option<T>) -> usize {
         unsafe {
             ffi::rte_mempool_obj_iter(
-                self.as_raw(),
+                self.as_raw_mut(),
                 Some(obj_cb_stub::<T, O>),
                 ObjectContext::new(callback, arg).into_raw(),
             ) as usize
@@ -253,8 +256,8 @@ where
                 Some(obj_cb_stub::<T, O>)
             },
             obj_init_ctx,
-            socket_id,
-            flags.bits,
+            socket_id as i32,
+            flags.bits(),
         )
     }
     .as_result()
@@ -287,8 +290,8 @@ where
             mem::size_of::<O>() as u32,
             cache_size,
             private_data_size,
-            socket_id,
-            flags.bits,
+            socket_id as i32,
+            flags.bits(),
         )
     }
     .as_result()
@@ -312,7 +315,7 @@ unsafe extern "C" fn obj_cb_stub<T, O>(mp: *mut ffi::rte_mempool, arg: *mut c_vo
     let mp = MemoryPool::from(mp);
     let ctx = ObjectContext::<T, O>::from_raw(arg);
 
-    (ctx.callback)(&mp, ctx.arg, (obj as *mut O).as_mut().unwrap(), obj_idx as usize);
+    unsafe { (ctx.callback)(&mp, ctx.arg, (obj as *mut O).as_mut().unwrap(), obj_idx as usize) };
 
     mem::forget(mp);
 }
@@ -328,13 +331,13 @@ unsafe extern "C" fn mem_cb_stub<T>(
     let mp = MemoryPool::from(mp);
     let ctx = MemoryChunkContext::<T>::from_raw(arg);
 
-    (ctx.callback)(&mp, ctx.arg, &*memhdr, mem_idx as usize);
+    unsafe { (ctx.callback)(&mp, ctx.arg, &*memhdr, mem_idx as usize) };
 
     mem::forget(mp);
 }
 
 pub fn lookup(name: &str) -> Result<RawMemoryPoolPtr> {
-    let p = unsafe { ffi::rte_mempool_lookup(try!(to_cptr!(name))) };
+    let p = unsafe { ffi::rte_mempool_lookup(to_cptr!(name)?) };
 
     rte_check!(p, NonNull)
 }
@@ -343,7 +346,7 @@ pub fn lookup(name: &str) -> Result<RawMemoryPoolPtr> {
 pub fn list_dump<S: AsRawFd>(s: &S) {
     if let Ok(mut f) = cfile::fdopen(s, "w") {
         unsafe {
-            ffi::rte_mempool_list_dump(&mut **f as *mut _ as *mut _);
+            ffi::rte_mempool_list_dump(f.as_ptr() as *mut _);
         }
     }
 }
@@ -380,25 +383,25 @@ impl Cache {
     /// This can be used by non-EAL threads to enable caching
     /// when they interact with a mempool.
     pub fn create(size: usize, socket_id: SocketId) -> Self {
-        unsafe { ffi::rte_mempool_cache_create(size as u32, socket_id) }.into()
+        unsafe { ffi::rte_mempool_cache_create(size as u32, socket_id as i32) }.into()
     }
 
     /// Free a user-owned mempool cache.
     fn free(self) {
-        unsafe { ffi::rte_mempool_cache_free(self.as_raw()) }
+        unsafe { ffi::rte_mempool_cache_free(self.as_raw_mut()) }
     }
 }
 
 impl MemoryPool {
     /// Flush a user-owned mempool cache to the specified mempool.
     pub fn flush(&self, cache: &Cache) {
-        unsafe { ffi::_rte_mempool_cache_flush(cache.as_raw(), self.as_raw()) }
+        unsafe { ffi::_rte_mempool_cache_flush(cache.as_raw_mut(), self.as_raw_mut()) }
     }
 
     /// Get a pointer to the per-lcore default mempool cache.
     pub fn default_cache(&self) -> Option<Cache> {
         lcore::current().and_then(|lcore_id| {
-            NonNull::new(unsafe { ffi::_rte_mempool_default_cache(self.as_raw(), *lcore_id) }).map(Cache)
+            NonNull::new(unsafe { ffi::_rte_mempool_default_cache(self.as_raw_mut(), *lcore_id) }).map(Cache)
         })
     }
 
@@ -406,7 +409,7 @@ impl MemoryPool {
     pub fn generic_put<T: Pooled<R>, R>(&mut self, objs: &[T], cache: Option<Cache>) {
         unsafe {
             ffi::_rte_mempool_generic_put(
-                self.as_raw(),
+                self.as_raw_mut(),
                 objs.as_ptr() as *const _,
                 objs.len() as u32,
                 cache.map(|cache| cache.into_raw()).unwrap_or(ptr::null_mut()),
@@ -420,7 +423,7 @@ impl MemoryPool {
     /// version depending on the default behavior that was specified at
     /// mempool creation time (see flags).
     pub fn put_bulk<T: Pooled<R>, R>(&mut self, objs: &[T]) {
-        unsafe { ffi::_rte_mempool_put_bulk(self.as_raw(), objs.as_ptr() as *const _, objs.len() as u32) }
+        unsafe { ffi::_rte_mempool_put_bulk(self.as_raw_mut(), objs.as_ptr() as *const _, objs.len() as u32) }
     }
 
     /// Put several objects back in the mempool.
@@ -429,7 +432,7 @@ impl MemoryPool {
     /// version depending on the default behavior that was specified at
     /// mempool creation time (see flags).
     pub fn put<T: Pooled<R>, R>(&mut self, obj: T) {
-        unsafe { ffi::_rte_mempool_put(self.as_raw(), obj.as_raw() as *mut _) }
+        unsafe { ffi::_rte_mempool_put(self.as_raw_mut(), obj.as_raw() as *mut _) }
     }
 
     /// Get several objects from the mempool.
@@ -441,7 +444,7 @@ impl MemoryPool {
     pub fn generic_get<T: Pooled<R>, R>(&mut self, objs: &mut [T], cache: Option<Cache>) -> Result<()> {
         unsafe {
             ffi::_rte_mempool_generic_get(
-                self.as_raw(),
+                self.as_raw_mut(),
                 objs.as_mut_ptr() as *mut _,
                 objs.len() as u32,
                 cache.map(|cache| cache.into_raw()).unwrap_or(ptr::null_mut()),
@@ -462,7 +465,7 @@ impl MemoryPool {
     /// the local cache and common pool are empty, even if cache from other
     /// lcores are full.
     pub fn get_bulk<T: Pooled<R>, R>(&mut self, objs: &mut [T]) -> Result<()> {
-        unsafe { ffi::_rte_mempool_get_bulk(self.as_raw(), objs.as_mut_ptr() as *mut _, objs.len() as u32) }
+        unsafe { ffi::_rte_mempool_get_bulk(self.as_raw_mut(), objs.as_mut_ptr() as *mut _, objs.len() as u32) }
             .as_result()
             .map(|_| ())
     }
@@ -480,7 +483,7 @@ impl MemoryPool {
     pub fn get<T: Pooled<R>, R>(&mut self) -> Result<T> {
         let mut obj = ptr::null_mut();
 
-        unsafe { ffi::_rte_mempool_get(self.as_raw(), &mut obj) }
+        unsafe { ffi::_rte_mempool_get(self.as_raw_mut(), &mut obj) }
             .as_result()
             .map(|_| (obj as *mut T::Raw).into())
     }
@@ -494,8 +497,10 @@ impl MemoryPool {
     /// by calling rte_mempool_ops_get_info() and checking that `contig_block_size`
     /// is not zero.
     pub fn get_contig_blocks<T: Pooled<R>, R>(&mut self, objs: &mut [T]) -> Result<()> {
-        unsafe { ffi::_rte_mempool_get_contig_blocks(self.as_raw(), objs.as_mut_ptr() as *mut _, objs.len() as u32) }
-            .as_result()
-            .map(|_| ())
+        unsafe {
+            ffi::_rte_mempool_get_contig_blocks(self.as_raw_mut(), objs.as_mut_ptr() as *mut _, objs.len() as u32)
+        }
+        .as_result()
+        .map(|_| ())
     }
 }

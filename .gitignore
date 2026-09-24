@@ -1,2 +1,7 @@
 target
 Cargo.lock
+.xmake
+build
+env.sh
+env.fish
+compile_commands.json

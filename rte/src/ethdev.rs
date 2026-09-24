@@ -4,18 +4,19 @@ use std::ops::Range;
 use std::os::raw::c_void;
 use std::ptr;
 
+use anyhow::Result;
 use libc;
 
-use ffi;
-
-use dev;
-use errors::{AsResult, ErrorKind::OsError, Result};
-use ether;
-use malloc;
-use mbuf;
-use memory::SocketId;
-use mempool;
-use utils::AsRaw;
+use crate::dev;
+use crate::errors::{AsResult, ErrorKind::OsError};
+use crate::ether;
+use crate::ffi;
+use crate::malloc;
+use crate::mbuf;
+use crate::memory::SocketId;
+use crate::mempool;
+use crate::utils::AsRaw;
+use crate::{bool_value, rte_check};
 
 pub type PortId = u16;
 pub type QueueId = u16;
@@ -172,7 +173,7 @@ pub trait EthDevice {
 /// The enabled port numbers may be noncontiguous.
 /// In the case, the applications need to manage enabled port by themselves.
 pub fn count() -> u16 {
-    unsafe { ffi::rte_eth_dev_count() }
+    unsafe { ffi::rte_eth_dev_count_avail() }
 }
 
 pub fn devices() -> Range<PortId> {
@@ -196,7 +197,9 @@ impl EthDevice for PortId {
     fn info(&self) -> RawEthDeviceInfo {
         let mut info: RawEthDeviceInfo = Default::default();
 
-        unsafe { ffi::rte_eth_dev_info_get(*self, &mut info) }
+        unsafe {
+            ffi::rte_eth_dev_info_get(*self, &mut info);
+        }
 
         info
     }
@@ -217,7 +220,7 @@ impl EthDevice for PortId {
 
     fn mac_addr(&self) -> ether::EtherAddr {
         unsafe {
-            let mut addr: ffi::ether_addr = mem::zeroed();
+            let mut addr: ffi::rte_ether_addr = mem::zeroed();
 
             ffi::rte_eth_macaddr_get(*self, &mut addr);
 
@@ -252,7 +255,7 @@ impl EthDevice for PortId {
                                         nb_rx_desc,
                                         self.socket_id() as u32,
                                         rx_conf.as_ref().map(|conf| conf as *const _).unwrap_or(ptr::null()),
-                                        mb_pool.as_raw())
+                                        mb_pool.as_raw_mut())
         }; ok => { self })
     }
 
@@ -308,26 +311,30 @@ impl EthDevice for PortId {
     fn link(&self) -> EthLink {
         let mut link = rte_sys::rte_eth_link::default();
 
-        unsafe { ffi::rte_eth_link_get(*self, &mut link as *mut _) }
+        unsafe {
+            ffi::rte_eth_link_get(*self, &mut link as *mut _);
 
-        EthLink {
-            speed: link.link_speed,
-            duplex: link.link_duplex() != 0,
-            autoneg: link.link_autoneg() != 0,
-            up: link.link_status() != 0,
+            EthLink {
+                speed: link.link_speed,
+                duplex: link.link_duplex() != 0,
+                autoneg: link.link_autoneg() != 0,
+                up: link.link_status() != 0,
+            }
         }
     }
 
     fn link_nowait(&self) -> EthLink {
         let mut link = rte_sys::rte_eth_link::default();
 
-        unsafe { ffi::rte_eth_link_get_nowait(*self, &mut link as *mut _) }
+        unsafe {
+            ffi::rte_eth_link_get_nowait(*self, &mut link as *mut _);
 
-        EthLink {
-            speed: link.link_speed,
-            duplex: link.link_duplex() != 0,
-            autoneg: link.link_autoneg() != 0,
-            up: link.link_status() != 0,
+            EthLink {
+                speed: link.link_speed,
+                duplex: link.link_duplex() != 0,
+                autoneg: link.link_autoneg() != 0,
+                up: link.link_status() != 0,
+            }
         }
     }
 
@@ -395,7 +402,7 @@ impl EthDevice for PortId {
 
     fn set_vlan_offload(&self, mode: EthVlanOffloadMode) -> Result<&Self> {
         rte_check!(unsafe {
-            ffi::rte_eth_dev_set_vlan_offload(*self, mode.bits)
+            ffi::rte_eth_dev_set_vlan_offload(*self, mode.bits())
         }; ok => { self })
     }
 }
@@ -448,13 +455,7 @@ bitflags! {
 }
 
 /// A set of values to identify what method is to be used to route packets to multiple queues.
-bitflags! {
-    pub struct EthRxMultiQueueMode: u32 {
-        const ETH_MQ_RX_RSS_FLAG    = 0x1;
-        const ETH_MQ_RX_DCB_FLAG    = 0x2;
-        const ETH_MQ_RX_VMDQ_FLAG   = 0x4;
-    }
-}
+pub type EthRxMultiQueueMode = ffi::rte_eth_rx_mq_mode::Type;
 
 bitflags! {
     /// Definitions used for VLAN Offload functionality
@@ -489,6 +490,7 @@ pub type EthTxMultiQueueMode = ffi::rte_eth_tx_mq_mode::Type;
 /// rte_eth_dev_info_get().
 bitflags! {
     pub struct RssHashFunc: u64 {
+        const ETH_RSS_UNKNOWN            = 0;
         const ETH_RSS_IPV4               = 1 << ffi::RTE_ETH_FLOW_IPV4;
         const ETH_RSS_FRAG_IPV4          = 1 << ffi::RTE_ETH_FLOW_FRAG_IPV4;
         const ETH_RSS_NONFRAG_IPV4_TCP   = 1 << ffi::RTE_ETH_FLOW_NONFRAG_IPV4_TCP;
@@ -505,48 +507,192 @@ bitflags! {
         const ETH_RSS_IPV6_EX            = 1 << ffi::RTE_ETH_FLOW_IPV6_EX;
         const ETH_RSS_IPV6_TCP_EX        = 1 << ffi::RTE_ETH_FLOW_IPV6_TCP_EX;
         const ETH_RSS_IPV6_UDP_EX        = 1 << ffi::RTE_ETH_FLOW_IPV6_UDP_EX;
+        const ETH_RSS_PORT               = 1 << ffi::RTE_ETH_FLOW_PORT;
+        const ETH_RSS_VXLAN              = 1 << ffi::RTE_ETH_FLOW_VXLAN;
+        const ETH_RSS_GENEVE             = 1 << ffi::RTE_ETH_FLOW_GENEVE;
+        const ETH_RSS_NVGRE              = 1 << ffi::RTE_ETH_FLOW_NVGRE;
+        const ETH_RSS_GTPU               = 1 << ffi::RTE_ETH_FLOW_GTPU;
+        const ETH_RSS_ETH                = 1 << ffi::RTE_ETH_FLOW_MAX;
+        const ETH_RSS_S_VLAN             = 1 << 25;
+        const ETH_RSS_C_VLAN             = 1 << 26;
+        const ETH_RSS_ESP                = 1 << 27;
+        const ETH_RSS_AH                 = 1 << 28;
+        const ETH_RSS_L2TPV3             = 1 << 29;
+        const ETH_RSS_PFCP               = 1 << 30;
+        const ETH_RSS_PPPOE              = 1 << 31;
+        const ETH_RSS_ECPRI              = 1 << 32;
+
+        const ETH_RSS_L3_SRC_ONLY        = 1 << 63;
+        const ETH_RSS_L3_DST_ONLY        = 1 << 62;
+        const ETH_RSS_L4_SRC_ONLY        = 1 << 61;
+        const ETH_RSS_L4_DST_ONLY        = 1 << 60;
+        const ETH_RSS_L2_SRC_ONLY        = 1 << 59;
+        const ETH_RSS_L2_DST_ONLY        = 1 << 58;
+
+        const RTE_ETH_RSS_L3_PRE32       = 1 << 57;
+        const RTE_ETH_RSS_L3_PRE40       = 1 << 56;
+        const RTE_ETH_RSS_L3_PRE48       = 1 << 55;
+        const RTE_ETH_RSS_L3_PRE56       = 1 << 54;
+        const RTE_ETH_RSS_L3_PRE64       = 1 << 53;
+        const RTE_ETH_RSS_L3_PRE96       = 1 << 52;
+
+        const ETH_RSS_LEVEL_PMD_DEFAULT  = 0 << 50;
+
+        const ETH_RSS_LEVEL_OUTERMOST    = 1 << 50;
+
+        const ETH_RSS_LEVEL_INNERMOST    = 2 << 50;
+        const ETH_RSS_LEVEL_MASK         = 3 << 50;
+
+        const ETH_RSS_IPV6_PRE32 =
+            Self::ETH_RSS_IPV6.bits() |
+            Self::RTE_ETH_RSS_L3_PRE32.bits();
+
+        const ETH_RSS_IPV6_PRE40 =
+            Self::ETH_RSS_IPV6.bits() |
+            Self::RTE_ETH_RSS_L3_PRE40.bits();
+
+        const ETH_RSS_IPV6_PRE48 =
+            Self::ETH_RSS_IPV6.bits() |
+            Self::RTE_ETH_RSS_L3_PRE48.bits();
+
+        const ETH_RSS_IPV6_PRE56 =
+            Self::ETH_RSS_IPV6.bits() |
+            Self::RTE_ETH_RSS_L3_PRE56.bits();
+
+        const ETH_RSS_IPV6_PRE64 =
+            Self::ETH_RSS_IPV6.bits() |
+            Self::RTE_ETH_RSS_L3_PRE64.bits();
+
+        const ETH_RSS_IPV6_PRE96 =
+            Self::ETH_RSS_IPV6.bits() |
+            Self::RTE_ETH_RSS_L3_PRE96.bits();
+
+        const ETH_RSS_IPV6_PRE32_UDP =
+            Self::ETH_RSS_NONFRAG_IPV6_UDP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE32.bits();
+
+        const ETH_RSS_IPV6_PRE40_UDP =
+            Self::ETH_RSS_NONFRAG_IPV6_UDP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE40.bits();
+
+        const ETH_RSS_IPV6_PRE48_UDP =
+            Self::ETH_RSS_NONFRAG_IPV6_UDP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE48.bits();
+
+        const ETH_RSS_IPV6_PRE56_UDP =
+            Self::ETH_RSS_NONFRAG_IPV6_UDP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE56.bits();
+
+        const ETH_RSS_IPV6_PRE64_UDP =
+            Self::ETH_RSS_NONFRAG_IPV6_UDP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE64.bits();
+
+        const ETH_RSS_IPV6_PRE96_UDP =
+            Self::ETH_RSS_NONFRAG_IPV6_UDP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE96.bits();
+
+        const ETH_RSS_IPV6_PRE32_TCP =
+            Self::ETH_RSS_NONFRAG_IPV6_TCP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE32.bits();
+
+        const ETH_RSS_IPV6_PRE40_TCP =
+            Self::ETH_RSS_NONFRAG_IPV6_TCP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE40.bits();
+
+        const ETH_RSS_IPV6_PRE48_TCP =
+            Self::ETH_RSS_NONFRAG_IPV6_TCP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE48.bits();
+
+        const ETH_RSS_IPV6_PRE56_TCP =
+            Self::ETH_RSS_NONFRAG_IPV6_TCP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE56.bits();
+
+        const ETH_RSS_IPV6_PRE64_TCP =
+            Self::ETH_RSS_NONFRAG_IPV6_TCP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE64.bits();
+
+        const ETH_RSS_IPV6_PRE96_TCP =
+            Self::ETH_RSS_NONFRAG_IPV6_TCP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE96.bits();
+
+        const ETH_RSS_IPV6_PRE32_SCTP =
+            Self::ETH_RSS_NONFRAG_IPV6_SCTP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE32.bits();
+
+        const ETH_RSS_IPV6_PRE40_SCTP =
+            Self::ETH_RSS_NONFRAG_IPV6_SCTP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE40.bits();
+
+        const ETH_RSS_IPV6_PRE48_SCTP =
+            Self::ETH_RSS_NONFRAG_IPV6_SCTP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE48.bits();
+
+        const ETH_RSS_IPV6_PRE56_SCTP =
+            Self::ETH_RSS_NONFRAG_IPV6_SCTP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE56.bits();
+
+        const ETH_RSS_IPV6_PRE64_SCTP =
+            Self::ETH_RSS_NONFRAG_IPV6_SCTP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE64.bits();
+
+        const ETH_RSS_IPV6_PRE96_SCTP =
+            Self::ETH_RSS_NONFRAG_IPV6_SCTP.bits() |
+            Self::RTE_ETH_RSS_L3_PRE96.bits();
 
         const ETH_RSS_IP =
-            Self::ETH_RSS_IPV4.bits |
-            Self::ETH_RSS_FRAG_IPV4.bits |
-            Self::ETH_RSS_NONFRAG_IPV4_OTHER.bits |
-            Self::ETH_RSS_IPV6.bits |
-            Self::ETH_RSS_FRAG_IPV6.bits |
-            Self::ETH_RSS_NONFRAG_IPV6_OTHER.bits |
-            Self::ETH_RSS_IPV6_EX.bits;
+            Self::ETH_RSS_IPV4.bits() |
+            Self::ETH_RSS_FRAG_IPV4.bits() |
+            Self::ETH_RSS_NONFRAG_IPV4_OTHER.bits() |
+            Self::ETH_RSS_IPV6.bits() |
+            Self::ETH_RSS_FRAG_IPV6.bits() |
+            Self::ETH_RSS_NONFRAG_IPV6_OTHER.bits() |
+            Self::ETH_RSS_IPV6_EX.bits();
 
         const ETH_RSS_UDP =
-            Self::ETH_RSS_NONFRAG_IPV4_UDP.bits |
-            Self::ETH_RSS_NONFRAG_IPV6_UDP.bits |
-            Self::ETH_RSS_IPV6_UDP_EX.bits;
+            Self::ETH_RSS_NONFRAG_IPV4_UDP.bits() |
+            Self::ETH_RSS_NONFRAG_IPV6_UDP.bits() |
+            Self::ETH_RSS_IPV6_UDP_EX.bits();
 
         const ETH_RSS_TCP =
-            Self::ETH_RSS_NONFRAG_IPV4_TCP.bits |
-            Self::ETH_RSS_NONFRAG_IPV6_TCP.bits |
-            Self::ETH_RSS_IPV6_TCP_EX.bits;
+            Self::ETH_RSS_NONFRAG_IPV4_TCP.bits() |
+            Self::ETH_RSS_NONFRAG_IPV6_TCP.bits() |
+            Self::ETH_RSS_IPV6_TCP_EX.bits();
 
         const ETH_RSS_SCTP =
-            Self::ETH_RSS_NONFRAG_IPV4_SCTP.bits |
-            Self::ETH_RSS_NONFRAG_IPV6_SCTP.bits;
+            Self::ETH_RSS_NONFRAG_IPV4_SCTP.bits() |
+            Self::ETH_RSS_NONFRAG_IPV6_SCTP.bits();
+
+        const ETH_RSS_TUNNEL =
+            Self::ETH_RSS_VXLAN.bits() |
+            Self::ETH_RSS_GENEVE.bits() |
+            Self::ETH_RSS_NVGRE.bits();
+
+        const ETH_RSS_VLAN =
+            Self::ETH_RSS_S_VLAN.bits() |
+            Self::ETH_RSS_C_VLAN.bits();
 
         /**< Mask of valid RSS hash protocols */
         const ETH_RSS_PROTO_MASK =
-            Self::ETH_RSS_IPV4.bits |
-            Self::ETH_RSS_FRAG_IPV4.bits |
-            Self::ETH_RSS_NONFRAG_IPV4_TCP.bits |
-            Self::ETH_RSS_NONFRAG_IPV4_UDP.bits |
-            Self::ETH_RSS_NONFRAG_IPV4_SCTP.bits |
-            Self::ETH_RSS_NONFRAG_IPV4_OTHER.bits |
-            Self::ETH_RSS_IPV6.bits |
-            Self::ETH_RSS_FRAG_IPV6.bits |
-            Self::ETH_RSS_NONFRAG_IPV6_TCP.bits |
-            Self::ETH_RSS_NONFRAG_IPV6_UDP.bits |
-            Self::ETH_RSS_NONFRAG_IPV6_SCTP.bits |
-            Self::ETH_RSS_NONFRAG_IPV6_OTHER.bits |
-            Self::ETH_RSS_L2_PAYLOAD.bits |
-            Self::ETH_RSS_IPV6_EX.bits |
-            Self::ETH_RSS_IPV6_TCP_EX.bits |
-            Self::ETH_RSS_IPV6_UDP_EX.bits;
+            Self::ETH_RSS_IPV4.bits() |
+            Self::ETH_RSS_FRAG_IPV4.bits() |
+            Self::ETH_RSS_NONFRAG_IPV4_TCP.bits() |
+            Self::ETH_RSS_NONFRAG_IPV4_UDP.bits() |
+            Self::ETH_RSS_NONFRAG_IPV4_SCTP.bits() |
+            Self::ETH_RSS_NONFRAG_IPV4_OTHER.bits() |
+            Self::ETH_RSS_IPV6.bits() |
+            Self::ETH_RSS_FRAG_IPV6.bits() |
+            Self::ETH_RSS_NONFRAG_IPV6_TCP.bits() |
+            Self::ETH_RSS_NONFRAG_IPV6_UDP.bits() |
+            Self::ETH_RSS_NONFRAG_IPV6_SCTP.bits() |
+            Self::ETH_RSS_NONFRAG_IPV6_OTHER.bits() |
+            Self::ETH_RSS_L2_PAYLOAD.bits() |
+            Self::ETH_RSS_IPV6_EX.bits() |
+            Self::ETH_RSS_IPV6_TCP_EX.bits() |
+            Self::ETH_RSS_IPV6_UDP_EX.bits() |
+            Self::ETH_RSS_PORT.bits() |
+            Self::ETH_RSS_VXLAN.bits() |
+            Self::ETH_RSS_GENEVE.bits() |
+            Self::ETH_RSS_NVGRE.bits();
     }
 }
 
@@ -635,8 +781,8 @@ pub struct EthConf {
     /// Currently,Priority Flow Control(PFC) are supported,
     /// if DCB with PFC is needed, and the variable must be set ETH_DCB_PFC_SUPPORT.
     pub dcb_capability_en: u32,
-    pub fdir_conf: Option<ffi::rte_fdir_conf>,
-    pub intr_conf: Option<ffi::rte_intr_conf>,
+    // pub fdir_conf: Option<ffi::rte_fdir_conf>,
+    // pub intr_conf: Option<ffi::rte_intr_conf>,
 }
 
 pub type RawEthConfPtr = *const ffi::rte_eth_conf;
@@ -649,7 +795,7 @@ impl RawEthConf {
     }
 }
 
-impl<'a> From<&'a EthConf> for RawEthConf {
+impl From<&EthConf> for RawEthConf {
     fn from(c: &EthConf) -> Self {
         let mut conf: ffi::rte_eth_conf = Default::default();
 
@@ -669,7 +815,7 @@ impl<'a> From<&'a EthConf> for RawEthConf {
 
                 conf.rx_adv_conf.rss_conf.rss_key = rss_key as *mut _;
                 conf.rx_adv_conf.rss_conf.rss_key_len = rss_key_len;
-                conf.rx_adv_conf.rss_conf.rss_hf = rss_conf.hash.bits;
+                conf.rx_adv_conf.rss_conf.rss_hf = rss_conf.hash.bits();
             }
         }
 

@@ -1,6 +1,6 @@
 //!  Pseudo-random Generators in RTE
 
-use ffi;
+use crate::ffi;
 
 /// Seed the pseudo-random generator.
 ///

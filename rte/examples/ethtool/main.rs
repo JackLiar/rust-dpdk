@@ -27,7 +27,7 @@ fn setup_ports(app_cfg: &mut AppConfig) {
 
     for (portid, mutex) in app_cfg.ports.iter().enumerate() {
         if let Ok(mut guard) = mutex.lock() {
-            let app_port: &mut AppPort = &mut *guard;
+            let app_port: &mut AppPort = &mut guard;
 
             let dev = portid as ethdev::PortId;
             let dev_info = dev.info();
@@ -35,12 +35,12 @@ fn setup_ports(app_cfg: &mut AppConfig) {
             let size_pktpool = dev_info.rx_desc_lim.nb_max + dev_info.tx_desc_lim.nb_max + PKTPOOL_EXTRA_SIZE;
 
             app_port.pkt_pool = mbuf::pool_create(
-                &format!("pkt_pool_{}", portid),
+                format!("pkt_pool_{}", portid),
                 size_pktpool as u32,
                 PKTPOOL_CACHE,
                 0,
                 mbuf::RTE_MBUF_DEFAULT_BUF_SIZE as u16,
-                rte::socket_id() as i32,
+                rte::lcore::socket_id() as i32,
             )
             .expect("create mbuf pool failed");
 
@@ -51,18 +51,19 @@ fn setup_ports(app_cfg: &mut AppConfig) {
             app_port.port_id = portid as u8;
 
             dev.configure(1, 1, &port_conf)
-                .expect(&format!("fail to configure device: port={}", portid));
+                .unwrap_or_else(|_| panic!("fail to configure device: port={}", portid));
 
             // init one RX queue
             dev.rx_queue_setup(0, PORT_RX_QUEUE_SIZE, None, &mut app_port.pkt_pool)
-                .expect(&format!("fail to setup device rx queue: port={}", portid));
+                .unwrap_or_else(|_| panic!("fail to setup device rx queue: port={}", portid));
 
             // init one TX queue on each port
             dev.tx_queue_setup(0, PORT_TX_QUEUE_SIZE, None)
-                .expect(&format!("fail to setup device tx queue: port={}", portid));
+                .unwrap_or_else(|_| panic!("fail to setup device tx queue: port={}", portid));
 
             // Start device
-            dev.start().expect(&format!("fail to start device: port={}", portid));
+            dev.start()
+                .unwrap_or_else(|_| panic!("fail to start device: port={}", portid));
 
             dev.promiscuous_enable();
         }
@@ -83,7 +84,7 @@ fn slave_main(app_cfg: Option<&mut AppConfig>) -> i32 {
         for (portid, mutex) in app_cfg.ports.iter().enumerate() {
             // Check that port is active and unlocked
             if let Ok(mut guard) = mutex.try_lock() {
-                let app_port: &mut AppPort = &mut *guard;
+                let app_port: &mut AppPort = &mut guard;
 
                 if !app_port.port_active {
                     continue;
@@ -140,8 +141,8 @@ fn main() {
 
             0
         }
-        ports @ 1...MAX_PORTS => ports,
-        ports @ _ => {
+        ports @ 1..=MAX_PORTS => ports,
+        ports => {
             println!("Using only {} of {} ports", MAX_PORTS, ports);
 
             MAX_PORTS

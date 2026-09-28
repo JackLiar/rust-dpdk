@@ -25,6 +25,12 @@ fn generate_rte_header(fpath: &Path) -> Result<()> {
     file.write_all(b"#include <rte_lcore.h>\n")?;
     file.write_all(b"#include <rte_malloc.h>\n")?;
     file.write_all(b"#include <rte_mempool.h>\n")?;
+    #[cfg(feature = "ethdev")]
+    {
+        file.write_all(b"#include <rte_ethdev.h>\n")?;
+        file.write_all(b"#include <rte_flow.h>\n")?;
+    }
+
     file.write_all(b"#include <cmdline_cirbuf.h>\n")?;
     file.write_all(b"#include <cmdline.h>\n")?;
     file.write_all(b"#include <cmdline_parse_etheraddr.h>\n")?;

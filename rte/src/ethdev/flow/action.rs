@@ -7,16 +7,56 @@
 //! native `rte_flow_action`; no DPDK field is re-declared here.
 
 use std::any::Any;
+use std::ops::{Deref, DerefMut};
 use std::os::raw::c_void;
 use std::ptr;
 
 use anyhow::{Result, anyhow};
+use rte_sys::rte_eth_hash_function::*;
+use rte_sys::rte_flow_action_rss;
 
+use crate::ethdev::RssHashType;
+use crate::ethdev::flow::FlowType;
 use crate::ffi;
 
 use ffi::rte_flow_action_type::*;
 
 use super::Pattern;
+
+#[repr(u32)]
+#[derive(Debug, Default)]
+pub enum HashFunction {
+    #[default]
+    Default = RTE_ETH_HASH_FUNCTION_DEFAULT,
+    Toeplitz = 1,
+    SimpleXor = 2,
+    SymmetricToeplitz = 3,
+}
+
+#[derive(Debug, Default)]
+pub struct ActionRSS(rte_flow_action_rss);
+
+impl Deref for ActionRSS {
+    type Target = rte_flow_action_rss;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for ActionRSS {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl ActionRSS {
+    pub fn set_func(&mut self, func: HashFunction) {
+        self.func = func as _;
+    }
+    pub fn set_hash_type(&mut self, hash_type: RssHashType) {
+        self.types = hash_type.bits()
+    }
+}
 
 /// Builder owning a `NULL`-terminated array of native `rte_flow_action`.
 #[derive(Default)]

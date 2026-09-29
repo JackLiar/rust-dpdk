@@ -68,6 +68,40 @@ pub use crate::ffi::rte_flow_error_type::*;
 #[allow(ambiguous_glob_reexports)]
 pub use crate::ffi::rte_flow_item_type::*;
 
+/// DPDK *flow type* identifiers (`enum rte_eth_flow_type`), used to index the
+/// per-flow-type tables of the flow director and of the RSS configuration.
+///
+/// The values mirror `rte_sys::RTE_ETH_FLOW_*`.
+bitflags! {
+    pub struct FlowType: u32 {
+        const Unknown = rte_sys::RTE_ETH_FLOW_UNKNOWN;
+        const Raw = rte_sys::RTE_ETH_FLOW_RAW;
+        const Ipv4 = rte_sys::RTE_ETH_FLOW_IPV4;
+        const FragIpv4 = rte_sys::RTE_ETH_FLOW_FRAG_IPV4;
+        const NonfragIpv4Tcp = rte_sys::RTE_ETH_FLOW_NONFRAG_IPV4_TCP;
+        const NonfragIpv4Udp = rte_sys::RTE_ETH_FLOW_NONFRAG_IPV4_UDP;
+        const NonfragIpv4Sctp = rte_sys::RTE_ETH_FLOW_NONFRAG_IPV4_SCTP;
+        const NonfragIpv4Other = rte_sys::RTE_ETH_FLOW_NONFRAG_IPV4_OTHER;
+        const Ipv6 = rte_sys::RTE_ETH_FLOW_IPV6;
+        const FragIpv6 = rte_sys::RTE_ETH_FLOW_FRAG_IPV6;
+        const NonfragIpv6Tcp = rte_sys::RTE_ETH_FLOW_NONFRAG_IPV6_TCP;
+        const NonfragIpv6Udp = rte_sys::RTE_ETH_FLOW_NONFRAG_IPV6_UDP;
+        const NonfragIpv6Sctp = rte_sys::RTE_ETH_FLOW_NONFRAG_IPV6_SCTP;
+        const NonfragIpv6Other = rte_sys::RTE_ETH_FLOW_NONFRAG_IPV6_OTHER;
+        const L2Payload = rte_sys::RTE_ETH_FLOW_L2_PAYLOAD;
+        const Ipv6Ex = rte_sys::RTE_ETH_FLOW_IPV6_EX;
+        const Ipv6TcpEx = rte_sys::RTE_ETH_FLOW_IPV6_TCP_EX;
+        const Ipv6UdpEx = rte_sys::RTE_ETH_FLOW_IPV6_UDP_EX;
+        const Port = rte_sys::RTE_ETH_FLOW_PORT;
+        const Vxlan = rte_sys::RTE_ETH_FLOW_VXLAN;
+        const Geneve = rte_sys::RTE_ETH_FLOW_GENEVE;
+        const Nvgre = rte_sys::RTE_ETH_FLOW_NVGRE;
+        const VxlanGpe = rte_sys::RTE_ETH_FLOW_VXLAN_GPE;
+        const Gtpu = rte_sys::RTE_ETH_FLOW_GTPU;
+        const Max = rte_sys::RTE_ETH_FLOW_MAX;
+    }
+}
+
 /// Thin wrapper over the native [`rte_flow_attr`] that adds ergonomic
 /// direction setters ([`FlowAttr::set_ingress`], [`FlowAttr::set_egress`],
 /// [`FlowAttr::set_transfer`]) while keeping `Deref`/`DerefMut` access to every
@@ -236,6 +270,21 @@ mod tests {
 
     use crate::ffi::rte_flow_action_type::RTE_FLOW_ACTION_TYPE_DROP;
     use crate::ffi::rte_flow_item_type::RTE_FLOW_ITEM_TYPE_ETH;
+
+    #[test]
+    fn flow_type_matches_native_constants() {
+        assert_eq!(FlowType::Unknown.bits(), rte_sys::RTE_ETH_FLOW_UNKNOWN);
+        assert_eq!(FlowType::Raw.bits(), rte_sys::RTE_ETH_FLOW_RAW);
+        assert_eq!(FlowType::Ipv4.bits(), rte_sys::RTE_ETH_FLOW_IPV4);
+        assert_eq!(
+            FlowType::NonfragIpv4Other.bits(),
+            rte_sys::RTE_ETH_FLOW_NONFRAG_IPV4_OTHER
+        );
+        assert_eq!(FlowType::Ipv6Ex.bits(), rte_sys::RTE_ETH_FLOW_IPV6_EX);
+        assert_eq!(FlowType::VxlanGpe.bits(), rte_sys::RTE_ETH_FLOW_VXLAN_GPE);
+        assert_eq!(FlowType::Gtpu.bits(), rte_sys::RTE_ETH_FLOW_GTPU);
+        assert_eq!(FlowType::Max.bits(), rte_sys::RTE_ETH_FLOW_MAX);
+    }
 
     #[test]
     fn attr_helpers_set_the_right_direction() {

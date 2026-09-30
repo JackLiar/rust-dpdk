@@ -85,7 +85,14 @@ macro_rules! raw {
 
         impl $crate::utils::IntoRaw for $wrapper {
             fn into_raw(self) -> *mut Self::Raw {
-                self.0.as_ptr()
+                let raw = self.0.as_ptr();
+
+                // Ownership of the underlying object is transferred to the
+                // caller, so the wrapper must not run `Drop` and free/release
+                // what the returned pointer still refers to.
+                ::std::mem::forget(self);
+
+                raw
             }
         }
 

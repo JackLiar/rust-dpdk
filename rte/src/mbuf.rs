@@ -308,9 +308,13 @@ impl Clone for MBuf {
 
 impl Drop for MBuf {
     fn drop(&mut self) {
-        if self.refcnt_update(-1) == 0 {
-            self.free()
-        }
+        // `rte_pktmbuf_free()` already handles the reference count itself: it
+        // returns the mbuf to its pool once the last reference is dropped.
+        // Decrementing the refcnt here first would leave it at 0, which
+        // `rte_pktmbuf_prefree_seg()` treats as "still referenced" (0 - 1 wraps
+        // to 0xffff) and silently skips the free, draining the mbuf pool after
+        // NB_MBUF packets.
+        self.free()
     }
 }
 

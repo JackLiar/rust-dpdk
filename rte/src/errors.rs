@@ -12,7 +12,7 @@ use crate::ffi;
 /// Error number value, stored per-thread, which can be queried after
 /// calls to certain functions to determine why those functions failed.
 pub fn rte_errno() -> i32 {
-    unsafe { ffi::per_lcore__rte_errno }
+    unsafe { ffi::_rte_errno() }
 }
 
 pub trait AsResult {

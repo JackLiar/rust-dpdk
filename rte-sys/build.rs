@@ -45,15 +45,186 @@ fn generate_rte_header(fpath: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Emit `cargo:rustc-link-lib=rte_<feature>` for every enabled DPDK library feature.
+///
+/// Only linking is feature-gated. The generated header and `src/stub.c` are left
+/// untouched, so bindings for all libraries are still generated.
+macro_rules! link_libs {
+    ($($feature:literal),* $(,)?) => {
+        $(
+            #[cfg(feature = $feature)]
+            cargo_emit::rustc_link_lib!(concat!("rte_", $feature));
+        )*
+    };
+}
+
 fn generate_link_args(libdpdk: &Library) -> Result<()> {
     for p in &libdpdk.link_paths {
         cargo_emit::rustc_link_search!(format!("{}", p.display()));
     }
-    cargo_emit::rustc_link_lib!("rte_cmdline");
-    cargo_emit::rustc_link_lib!("rte_eal");
-    cargo_emit::rustc_link_lib!("rte_ethdev");
-    cargo_emit::rustc_link_lib!("rte_mbuf");
-    cargo_emit::rustc_link_lib!("rte_mempool");
+
+    // Feature list mirrors `rte-sys/Cargo.toml`. Derived from DPDK 20.11.10 as
+    // installed by xmake, i.e. the `Libs:` order of `lib/pkgconfig/libdpdk-libs.pc`
+    // (51 app-level libraries) followed by the remaining `lib/librte_*.so`
+    // drivers/PMDs sorted alphabetically (102 libraries), 153 in total.
+    link_libs![
+        // --- libdpdk-libs.pc Libs order (app-level) ---
+        "node",
+        "graph",
+        "bpf",
+        "flow_classify",
+        "pipeline",
+        "table",
+        "port",
+        "fib",
+        "ipsec",
+        "vhost",
+        "stack",
+        "security",
+        "sched",
+        "reorder",
+        "rib",
+        "regexdev",
+        "rawdev",
+        "pdump",
+        "power",
+        "member",
+        "lpm",
+        "latencystats",
+        "kni",
+        "jobstats",
+        "ip_frag",
+        "gso",
+        "gro",
+        "eventdev",
+        "efd",
+        "distributor",
+        "cryptodev",
+        "compressdev",
+        "cfgfile",
+        "bitratestats",
+        "bbdev",
+        "acl",
+        "timer",
+        "hash",
+        "metrics",
+        "cmdline",
+        "pci",
+        "ethdev",
+        "meter",
+        "net",
+        "mbuf",
+        "mempool",
+        "rcu",
+        "ring",
+        "eal",
+        "telemetry",
+        "kvargs",
+        // --- remaining librte_*.so (drivers/PMDs, alphabetical) ---
+        "baseband_acc100",
+        "baseband_fpga_5gnr_fec",
+        "baseband_fpga_lte_fec",
+        "baseband_null",
+        "baseband_turbo_sw",
+        "bus_dpaa",
+        "bus_fslmc",
+        "bus_ifpga",
+        "bus_pci",
+        "bus_vdev",
+        "bus_vmbus",
+        "common_cpt",
+        "common_dpaax",
+        "common_iavf",
+        "common_octeontx",
+        "common_octeontx2",
+        "common_qat",
+        "common_sfc_efx",
+        "compress_octeontx",
+        "compress_zlib",
+        "crypto_bcmfs",
+        "crypto_caam_jr",
+        "crypto_ccp",
+        "crypto_dpaa2_sec",
+        "crypto_dpaa_sec",
+        "crypto_nitrox",
+        "crypto_null",
+        "crypto_octeontx",
+        "crypto_octeontx2",
+        "crypto_openssl",
+        "crypto_scheduler",
+        "crypto_virtio",
+        "event_dlb",
+        "event_dlb2",
+        "event_dpaa",
+        "event_dpaa2",
+        "event_dsw",
+        "event_octeontx",
+        "event_octeontx2",
+        "event_opdl",
+        "event_skeleton",
+        "event_sw",
+        "mempool_bucket",
+        "mempool_dpaa",
+        "mempool_dpaa2",
+        "mempool_octeontx",
+        "mempool_octeontx2",
+        "mempool_ring",
+        "mempool_stack",
+        "net_af_packet",
+        "net_ark",
+        "net_atlantic",
+        "net_avp",
+        "net_axgbe",
+        "net_bnx2x",
+        "net_bnxt",
+        "net_bond",
+        "net_cxgbe",
+        "net_dpaa",
+        "net_dpaa2",
+        "net_e1000",
+        "net_ena",
+        "net_enetc",
+        "net_enic",
+        "net_failsafe",
+        "net_fm10k",
+        "net_hinic",
+        "net_hns3",
+        "net_i40e",
+        "net_iavf",
+        "net_ice",
+        "net_igc",
+        "net_ixgbe",
+        "net_kni",
+        "net_liquidio",
+        "net_memif",
+        "net_netvsc",
+        "net_nfp",
+        "net_null",
+        "net_octeontx",
+        "net_octeontx2",
+        "net_pfe",
+        "net_qede",
+        "net_ring",
+        "net_sfc",
+        "net_softnic",
+        "net_tap",
+        "net_thunderx",
+        "net_txgbe",
+        "net_vdev_netvsc",
+        "net_vhost",
+        "net_virtio",
+        "net_vmxnet3",
+        "raw_dpaa2_cmdif",
+        "raw_dpaa2_qdma",
+        "raw_ioat",
+        "raw_ntb",
+        "raw_octeontx2_dma",
+        "raw_octeontx2_ep",
+        "raw_skeleton",
+        "regex_octeontx2",
+        "vdpa_ifc",
+    ];
+
     Ok(())
 }
 

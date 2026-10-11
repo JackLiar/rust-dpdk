@@ -12,11 +12,17 @@ package("dpdk")
         add_deps("pkg-config")
     end
 
-    add_configs("net/pcap", {description = "libpcap pmd driver"})
+    add_configs("net/pcap", {description = "Build the libpcap PMD (net/pcap)", default = false, type = "boolean"})
     add_configs("kmods", {description = "Enable kernel modules build", default = false, type = "boolean"})
     add_configs("machine", {description = "Target CPU architecture", default = nil, type = "string"})
     add_configs("tests", {description = "Build unittests", default = false, type = "boolean"})
     add_configs("examples", {description = "Comma-seperated list of examples to build by default", default = "", type = "string"})
+
+    on_load(function (package)
+        if is_plat("linux") and package:config("net/pcap") then
+            package:add("deps", "libpcap", {configs = {shared = true, remote = false, libnl = false}})
+        end
+    end)
 
     on_install("linux", function (package) 
         local configs = {}
@@ -28,8 +34,17 @@ package("dpdk")
         end
         table.insert(configs, "-Dtests=".. tostring(package:config("tests")))
         table.insert(configs, "-Dexamples=".. tostring(package:config("examples")))
-        
+
+        if not package:config("net/pcap") then
+            table.insert(configs, "-Ddisable_drivers=net/pcap")
+        end
+
         import("package.tools.meson").install(package, configs)
+
+        if package:config("net/pcap") then
+            assert(#os.files(path.join(package:installdir("lib"), "librte_net_pcap*")) > 0,
+                "libpcap PMD was not built: libpcap was not discoverable by meson/pkg-config")
+        end
 
         io.writefile("xmake.lua", string.format([[
             target("dpdk")

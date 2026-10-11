@@ -6,7 +6,7 @@ else
     -- add_requires("libpcap", {system = false, configs= {shared = true}})
     -- add_requires("numactl", {system = false, configs = {shared = true}})
     -- add_requires("openssl", {system = false, configs = {shared = true}})
-    add_requires("dpdk 20.11.10", {system = false})
+    add_requires("dpdk 20.11.10", {system = false, configs = {["net/pcap"] = true}})
     add_requires("dpdk-kmods", {system = false})
 end
 

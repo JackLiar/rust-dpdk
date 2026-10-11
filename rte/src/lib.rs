@@ -27,6 +27,10 @@ pub mod mbuf;
 pub mod mempool;
 pub mod ring;
 
+/// Experimental, ownership-correct wrappers. Self contained: the legacy
+/// modules above are untouched.
+pub mod new;
+
 // pub mod bond;
 pub mod ethdev;
 // pub mod pci;

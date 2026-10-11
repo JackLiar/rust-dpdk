@@ -203,6 +203,10 @@ name = "rte"
 name = "helloworld"
 path = "examples/helloworld/main.rs"
 
+[[example]]
+name = "rxdump"
+path = "examples/rxdump/main.rs"
+
 # [[example]]
 # name = "l2fwd"
 # path = "examples/l2fwd/main.rs"

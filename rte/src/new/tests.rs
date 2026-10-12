@@ -135,7 +135,7 @@ fn end_to_end() {
 
     // ------------------------------------------------------- port, queue, mbuf
 
-    assert!(Port::count() >= 1, "net_null0 should have registered a port");
+    assert!(Port::available_count() >= 1, "net_null0 should have registered a port");
 
     let ts = RxTimestamp::register().expect("register RX timestamp dynfield");
 

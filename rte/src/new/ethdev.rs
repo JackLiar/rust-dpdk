@@ -24,7 +24,7 @@ use core::ptr;
 
 use crate::ffi;
 
-use super::error::{rte_errno, rte_strerror, PortError};
+use super::error::{PortError, rte_errno, rte_strerror};
 use super::mbuf::Mbuf;
 use super::mempool::MemoryPoolRef;
 
@@ -139,13 +139,19 @@ pub struct Port {
 impl Port {
     /// Number of ethernet ports currently available.
     #[inline]
-    pub fn count() -> u16 {
+    pub fn available_count() -> u16 {
         unsafe { ffi::rte_eth_dev_count_avail() }
+    }
+
+    /// Number of ethernet ports in total.
+    #[inline]
+    pub fn total_count() -> u16 {
+        unsafe { ffi::rte_eth_dev_count_total() }
     }
 
     /// Open `id`, validating it against the available ports.
     pub fn open(id: PortId) -> Result<Self, PortError> {
-        let count = Self::count();
+        let count = Self::available_count();
 
         if id >= count || unsafe { ffi::rte_eth_dev_is_valid_port(id) } == 0 {
             return Err(PortError::InvalidPort { id, count });
@@ -190,9 +196,7 @@ impl Port {
 
     /// MAC address of the port.
     pub fn mac_addr(&self) -> EtherAddr {
-        let mut addr = ffi::rte_ether_addr {
-            addr_bytes: [0; 6],
-        };
+        let mut addr = ffi::rte_ether_addr { addr_bytes: [0; 6] };
 
         unsafe { ffi::rte_eth_macaddr_get(self.id, &mut addr) };
 
@@ -232,12 +236,7 @@ impl Port {
     }
 
     /// Configure the port for `nb_rx`/`nb_tx` queues.
-    pub fn configure(
-        &self,
-        nb_rx: QueueId,
-        nb_tx: QueueId,
-        conf: &PortConfig,
-    ) -> Result<(), PortError> {
+    pub fn configure(&self, nb_rx: QueueId, nb_tx: QueueId, conf: &PortConfig) -> Result<(), PortError> {
         let ret = unsafe { ffi::rte_eth_dev_configure(self.id, nb_rx, nb_tx, &conf.conf) };
 
         if ret != 0 {

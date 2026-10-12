@@ -34,9 +34,7 @@ use std::process;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rte::new::{
-    Eal, Mbuf, MemoryPool, Port, PortConfig, RxTimestamp, DEFAULT_DATA_ROOM_SIZE,
-};
+use rte::new::{DEFAULT_DATA_ROOM_SIZE, Eal, Mbuf, MemoryPool, Port, PortConfig, RxTimestamp};
 
 const NB_MBUF: u32 = 8192;
 const MBUF_CACHE: u32 = 256;
@@ -192,19 +190,12 @@ fn main() {
     };
 
     // Owns the mbuf pool: dropped after the queue and port, before the EAL.
-    let pool = match MemoryPool::pktmbuf_pool(
-        &eal,
-        "rx_pool",
-        NB_MBUF,
-        MBUF_CACHE,
-        0,
-        DEFAULT_DATA_ROOM_SIZE,
-    ) {
+    let pool = match MemoryPool::pktmbuf_pool(&eal, "rx_pool", NB_MBUF, MBUF_CACHE, 0, DEFAULT_DATA_ROOM_SIZE) {
         Ok(pool) => pool,
         Err(err) => fail(&format!("fail to create the mbuf pool: {err}")),
     };
 
-    let nb_ports = Port::count();
+    let nb_ports = Port::available_count();
 
     if nb_ports == 0 {
         fail("no available DPDK ethernet port");

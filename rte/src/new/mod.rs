@@ -30,6 +30,7 @@
 //! | port ownership | [`Port`] | `Drop` stops and closes the port |
 //! | queue borrow | [`RxQueue<'port, 'pool>`] | borrows port **and** pool, so neither can be torn down first |
 //! | packet borrow | [`Mbuf<'pool>`] | `Drop` calls `rte_pktmbuf_free`, borrows the backing pool |
+//! | bus borrow | [`Bus<'a>`] / [`BusDevice<'a>`] | `Copy`, no `Drop`, cannot unregister a bus or free a device |
 //!
 //! Conversion from raw pointers is `unsafe` and explicit; there is no blanket
 //! `From<*mut rte_mempool>`, because that conversion is exactly the ownership
@@ -65,6 +66,7 @@
 //! * No `impl From<*mut rte_mempool>`: use the `unsafe` [`MemoryPool::from_raw`]
 //!   when you really do own a raw pointer.
 
+pub mod bus;
 pub mod cache;
 pub mod eal;
 pub mod error;
@@ -76,9 +78,10 @@ pub mod object;
 #[cfg(test)]
 mod tests;
 
+pub use bus::{Bus, BusDevice, IovaMode};
 pub use cache::{Cache, CacheRef};
 pub use eal::Eal;
-pub use error::{EalError, MempoolError, PortError, Result, TimestampError};
+pub use error::{BusError, EalError, MempoolError, PortError, Result, TimestampError};
 pub use ethdev::{
     rx_offloads, EtherAddr, LinkStatus, Port, PortConfig, PortId, PortInfo, QueueId, RxQueue,
 };

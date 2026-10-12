@@ -194,5 +194,22 @@ impl TimestampError {
     }
 }
 
+/// Failure while scanning, probing or dumping the registered buses.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum BusError {
+    /// `rte_bus_scan()` reported a failure.
+    #[error("failed to scan buses (rte_errno {errno}: {message})")]
+    Scan { errno: i32, message: String },
+
+    /// `rte_bus_probe()` reported a failure.
+    #[error("failed to probe buses (rte_errno {errno}: {message})")]
+    Probe { errno: i32, message: String },
+
+    /// Opening a stream for `rte_bus_dump()` failed.
+    #[error("failed to dump buses: {0}")]
+    Dump(#[from] std::io::Error),
+}
+
 /// Convenience alias used throughout `rte::new`.
 pub type Result<T, E = MempoolError> = core::result::Result<T, E>;

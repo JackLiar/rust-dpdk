@@ -16,6 +16,7 @@
 
 use core::ops::ControlFlow;
 use core::ptr::NonNull;
+use std::io::Read;
 
 use super::*;
 
@@ -187,6 +188,61 @@ fn end_to_end() {
     assert!(received > 0, "net_null0 should have delivered packets");
     assert_eq!(queue.port_id(), 0);
     assert_eq!(queue.queue_id(), 0);
+
+    // ------------------------------------------------------------------- buses
+
+    let vdev = eal.bus_by_name("vdev").expect("the vdev bus should be registered");
+    assert_eq!(vdev.name().to_bytes(), b"vdev");
+    assert!(eal.bus_by_name("no_such_bus").is_none());
+    // A name that cannot be a C string cannot match a bus either.
+    assert!(eal.bus_by_name("").is_none());
+
+    let mut names = Vec::new();
+    let flow = eal.for_each_bus(|bus| {
+        names.push(bus.name().to_string_lossy().into_owned());
+        ControlFlow::Continue(())
+    });
+    assert_eq!(flow, ControlFlow::Continue(()));
+    assert!(names.iter().any(|name| name == "vdev"), "registered buses: {names:?}");
+
+    // `ControlFlow::Break` stops the walk after the first bus.
+    let mut visited = 0usize;
+    let flow = eal.for_each_bus(|_bus| {
+        visited += 1;
+        ControlFlow::Break(())
+    });
+    assert_eq!(flow, ControlFlow::Break(()));
+    assert_eq!(visited, 1);
+
+    let found = eal
+        .find_bus(|bus| bus.name() == vdev.name())
+        .expect("find_bus should see vdev");
+    assert_eq!(found.as_ptr(), vdev.as_ptr());
+
+    // A panic in the comparator is resumed on the Rust side of the boundary.
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        eal.find_bus(|_bus| -> bool { panic!("bus comparator panic") })
+    }));
+    assert!(panicked.is_err());
+
+    // DPDK 20.11 always reports success here and re-scans the whole process, so
+    // exercise the FFI paths without asserting on their return value.
+    let _ = eal.bus_scan();
+    let _ = eal.bus_probe();
+
+    let _ = eal.iommu_class();
+
+    // `dump_buses` writes one name per line, but `fdopen(3)` takes ownership of
+    // the descriptor, so hand it a pipe end that we forget afterwards.
+    let (reader, writer) = std::io::pipe().expect("create pipe");
+    eal.dump_buses(&writer).expect("dump buses");
+    std::mem::forget(writer);
+
+    let mut dumped = String::new();
+    std::io::BufReader::new(reader)
+        .read_to_string(&mut dumped)
+        .expect("read bus dump");
+    assert!(dumped.lines().any(|line| line.trim() == "vdev"), "bus dump: {dumped:?}");
 
     // `queue` is dropped here, before `port`, `mbuf_pool` and `eal`: the
     // lifetime chain in `RxQueue` makes the reverse order a compile error.

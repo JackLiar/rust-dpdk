@@ -6,3 +6,7 @@ for a in "$@"; do
   args+=("$a")
 done
 exec cc "${args[@]}"
+
+# .cargo/config.toml
+# [target.x86_64-unknown-linux-gnu]
+# linker = "tools/ld-no-as-needed.sh"

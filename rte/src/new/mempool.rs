@@ -22,6 +22,7 @@ use crate::ffi;
 use super::cache::CacheRef;
 use super::eal::Eal;
 use super::error::{errno_from_return, rte_strerror, rte_errno, MempoolError, Result};
+use super::mbuf::Mbuf;
 use super::object::{PoolElement, PoolObject};
 
 /// Longest mempool name DPDK accepts, excluding the terminating NUL.
@@ -432,6 +433,16 @@ impl<'eal> MemoryPool<'eal> {
     ) -> Result<PoolObject<'_, T>, MempoolError> {
         self.as_ref().generic_get::<T>(cache)
     }
+
+    /// Allocate one packet buffer. See [`MemoryPoolRef::alloc_mbuf`].
+    pub fn alloc_mbuf(&self) -> Result<Mbuf<'_>, MempoolError> {
+        self.as_ref().alloc_mbuf()
+    }
+
+    /// Allocate `bufs.len()` packet buffers. See [`MemoryPoolRef::alloc_mbufs`].
+    pub fn alloc_mbufs<'p>(&'p self, bufs: &mut [Option<Mbuf<'p>>]) -> Result<(), MempoolError> {
+        self.as_ref().alloc_mbufs(bufs)
+    }
 }
 
 impl<'eal> Drop for MemoryPool<'eal> {
@@ -586,6 +597,98 @@ impl<'a> MemoryPoolRef<'a> {
         self.finish_get::<T>(ret, obj)
     }
 
+    /// Allocate one packet buffer (`rte_pktmbuf_alloc()`).
+    ///
+    /// The buffer is reset by DPDK, so `pkt_len()` and `data_len()` are zero.
+    /// It borrows this pool, and dropping it returns it with
+    /// `rte_pktmbuf_free()`.
+    ///
+    /// DPDK's allocation path uses the per-lcore cache, so this must run on an
+    /// EAL thread. Debug builds assert that; release builds simply follow DPDK.
+    #[inline]
+    pub fn alloc_mbuf(self) -> Result<Mbuf<'a>, MempoolError> {
+        debug_assert_ne!(
+            unsafe { ffi::_rte_lcore_id() },
+            ffi::LCORE_ID_ANY,
+            "rte_pktmbuf_alloc() must run on an EAL thread; \
+             use generic_get(Some(&cache)) from other threads"
+        );
+
+        // SAFETY: `self` is a live packet mbuf pool.
+        let raw = unsafe { ffi::_rte_pktmbuf_alloc(self.raw.as_ptr()) };
+
+        match NonNull::new(raw) {
+            // SAFETY: DPDK just handed us ownership of the buffer.
+            Some(raw) => Ok(unsafe { Mbuf::from_raw(raw) }),
+            None => Err(self.alloc_error()),
+        }
+    }
+
+    /// Allocate `bufs.len()` packet buffers (`rte_pktmbuf_alloc_bulk()`).
+    ///
+    /// Either every slot is filled or none is: on failure the error is returned
+    /// and `bufs` is left entirely `None`.
+    ///
+    /// # Preconditions
+    ///
+    /// `bufs` must contain only `None`. DPDK writes raw pointers into the slice,
+    /// so a still-populated slot would be overwritten without running `Drop` and
+    /// the packet would leak. A debug build asserts it.
+    ///
+    /// Like [`alloc_mbuf`](Self::alloc_mbuf), this must run on an EAL thread.
+    pub fn alloc_mbufs(self, bufs: &mut [Option<Mbuf<'a>>]) -> Result<(), MempoolError> {
+        if bufs.is_empty() {
+            return Ok(());
+        }
+
+        debug_assert_ne!(
+            unsafe { ffi::_rte_lcore_id() },
+            ffi::LCORE_ID_ANY,
+            "rte_pktmbuf_alloc_bulk() must run on an EAL thread; \
+             use generic_get(Some(&cache)) from other threads"
+        );
+
+        debug_assert!(
+            bufs.iter().all(Option::is_none),
+            "alloc_mbufs() needs an empty burst buffer: take() the packets of the previous burst first"
+        );
+
+        // SAFETY: `Option<Mbuf>` has the same representation as
+        // `*mut rte_mbuf` (asserted in `new::mbuf`), and we only hand empty
+        // slots to DPDK.
+        let ret = unsafe {
+            ffi::_rte_pktmbuf_alloc_bulk(
+                self.raw.as_ptr(),
+                bufs.as_mut_ptr() as *mut *mut ffi::rte_mbuf,
+                bufs.len() as u32,
+            )
+        };
+
+        if ret == 0 {
+            return Ok(());
+        }
+
+        // DPDK promises not to write `bufs` when it cannot satisfy the whole
+        // request, but be defensive: clear any slot it may have touched without
+        // running `Mbuf::drop`, which would free a buffer DPDK already owns.
+        for slot in bufs.iter_mut() {
+            unsafe { ptr::write(slot, None) };
+        }
+
+        let errno = errno_from_return(ret);
+
+        Err(if errno == libc::ENOENT {
+            MempoolError::Exhausted {
+                name: info_of(self.raw).name,
+            }
+        } else {
+            MempoolError::Rte {
+                errno,
+                message: rte_strerror(errno),
+            }
+        })
+    }
+
     /// Turn the outcome of a `get` into an object handle.
     #[inline]
     fn finish_get<T: PoolElement>(
@@ -612,6 +715,26 @@ impl<'a> MemoryPoolRef<'a> {
 
         // SAFETY: DPDK just handed ownership of the object to us.
         Ok(unsafe { PoolObject::from_parts(self, ptr) })
+    }
+
+    /// Build the error for a failed packet buffer allocation.
+    ///
+    /// `rte_pktmbuf_alloc()` returns `NULL` and sets `rte_errno` to `ENOENT`
+    /// when the pool is empty, which is the overwhelmingly common failure.
+    #[inline]
+    fn alloc_error(self) -> MempoolError {
+        let errno = rte_errno();
+
+        if errno == libc::ENOENT || errno == 0 {
+            MempoolError::Exhausted {
+                name: info_of(self.raw).name,
+            }
+        } else {
+            MempoolError::Rte {
+                errno,
+                message: rte_strerror(errno),
+            }
+        }
     }
 
     /// Borrow the calling lcore's default cache, if any.

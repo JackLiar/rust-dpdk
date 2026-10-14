@@ -166,6 +166,30 @@ fn end_to_end() {
     let mbuf_pool = MemoryPool::pktmbuf_pool(&eal, "new_test_pkts", 1024, 64, 0, DEFAULT_DATA_ROOM_SIZE)
         .expect("create pktmbuf pool");
 
+    // Direct allocation wraps `rte_pktmbuf_alloc()`: DPDK resets the buffer.
+    let pkt = mbuf_pool.alloc_mbuf().expect("alloc one mbuf");
+    assert_eq!(pkt.pkt_len(), 0);
+    assert_eq!(pkt.data_len(), 0);
+    drop(pkt);
+    assert_eq!(mbuf_pool.available(), 1024);
+
+    // Bulk allocation wraps `rte_pktmbuf_alloc_bulk()`; Drop returns them all.
+    let mut burst: [Option<Mbuf<'_>>; 8] = std::array::from_fn(|_| None);
+    mbuf_pool.alloc_mbufs(&mut burst).expect("alloc a burst");
+    assert!(burst.iter().all(Option::is_some));
+    drop(burst);
+    assert_eq!(mbuf_pool.available(), 1024);
+
+    // Too small a pool fails with a typed error and leaves no half-filled slots.
+    let small = MemoryPool::pktmbuf_pool(&eal, "new_test_pkts_small", 4, 0, 0, DEFAULT_DATA_ROOM_SIZE)
+        .expect("create small pool");
+    let mut too_many: [Option<Mbuf<'_>>; 5] = std::array::from_fn(|_| None);
+    let err = small.alloc_mbufs(&mut too_many).expect_err("pool is too small");
+    assert!(matches!(err, MempoolError::Exhausted { .. }));
+    assert!(too_many.iter().all(Option::is_none));
+    drop(too_many);
+    drop(small);
+
     let port = Port::open(0).expect("open port 0");
     assert_eq!(port.id(), 0);
 

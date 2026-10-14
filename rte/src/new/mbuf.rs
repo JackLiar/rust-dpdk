@@ -27,7 +27,9 @@ pub const DEFAULT_DATA_ROOM_SIZE: u16 = ffi::RTE_MBUF_DEFAULT_BUF_SIZE as u16;
 /// `Mbuf` is not a [`PoolElement`](super::PoolElement): packet mbuf pools are
 /// populated by DPDK itself (`rte_pktmbuf_pool_create()`), never by a Rust
 /// `init` callback. Create the pool with
-/// [`MemoryPool::pktmbuf_pool`](super::MemoryPool::pktmbuf_pool).
+/// [`MemoryPool::pktmbuf_pool`](super::MemoryPool::pktmbuf_pool), then allocate
+/// buffers with [`MemoryPoolRef::alloc_mbuf`](super::MemoryPoolRef::alloc_mbuf)
+/// or [`MemoryPoolRef::alloc_mbufs`](super::MemoryPoolRef::alloc_mbufs).
 ///
 /// # Thread affinity
 ///

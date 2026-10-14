@@ -134,6 +134,29 @@ fn end_to_end() {
     let missing = unsafe { MemoryPoolRef::lookup("new_test_slots") };
     assert!(matches!(missing, Err(MempoolError::NotFound { .. })));
 
+    // Explicit socket variants forward the argument instead of using the EAL's
+    // current socket.
+    let socket_id = eal.socket_id();
+
+    let on_socket = MemoryPool::create_on_socket::<Slot>(&eal, "new_test_slots_socket", 16, 0, socket_id)
+        .expect("create pool on socket");
+    assert_eq!(on_socket.info().socket_id, socket_id);
+    assert_eq!(on_socket.available(), 16);
+    drop(on_socket);
+
+    let mbufs_on_socket = MemoryPool::pktmbuf_pool_on_socket(
+        &eal,
+        "new_test_pkts_socket",
+        128,
+        0,
+        0,
+        DEFAULT_DATA_ROOM_SIZE,
+        socket_id,
+    )
+    .expect("create pktmbuf pool on socket");
+    assert_eq!(mbufs_on_socket.info().socket_id, socket_id);
+    drop(mbufs_on_socket);
+
     // ------------------------------------------------------- port, queue, mbuf
 
     assert!(Port::available_count() >= 1, "net_null0 should have registered a port");

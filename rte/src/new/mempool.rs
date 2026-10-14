@@ -195,12 +195,34 @@ impl<'eal> MemoryPool<'eal> {
     /// Create a pool of `T` with `capacity` elements.
     ///
     /// `T::init` is invoked once per element while DPDK populates the pool.
+    ///
+    /// The pool is placed on [`Eal::socket_id`]; use
+    /// [`create_on_socket`](Self::create_on_socket) to choose the NUMA socket
+    /// explicitly.
     pub fn create<T: PoolElement>(
         eal: &'eal Eal,
         name: &str,
         capacity: u32,
         cache_size: u32,
     ) -> Result<Self, MempoolError> {
+        Self::create_on_socket::<T>(eal, name, capacity, cache_size, eal.socket_id())
+    }
+
+    /// Create a pool of `T` with `capacity` elements on an explicit NUMA socket.
+    ///
+    /// `T::init` is invoked once per element while DPDK populates the pool.
+    /// `socket_id` is forwarded to DPDK verbatim, so `SOCKET_ID_ANY` (`-1`)
+    /// lets DPDK resolve the socket itself, and an out-of-range socket makes
+    /// creation fail with a [`MempoolError`].
+    pub fn create_on_socket<T: PoolElement>(
+        eal: &'eal Eal,
+        name: &str,
+        capacity: u32,
+        cache_size: u32,
+        socket_id: i32,
+    ) -> Result<Self, MempoolError> {
+        let _ = eal;
+
         let cname = validate_name(name)?;
         let elt_size = T::ELT_SIZE;
 
@@ -217,7 +239,7 @@ impl<'eal> MemoryPool<'eal> {
                 ptr::null_mut(),
                 Some(init_trampoline::<T>),
                 ptr::null_mut(),
-                eal.socket_id(),
+                socket_id,
                 MemoryPoolFlags::empty().bits(),
             )
         };
@@ -229,6 +251,10 @@ impl<'eal> MemoryPool<'eal> {
     ///
     /// Elements are `rte_mbuf` headers with `data_room_size` bytes of data room;
     /// the wrapper does not type-check them, it only owns the pool.
+    ///
+    /// The pool is placed on [`Eal::socket_id`]; use
+    /// [`pktmbuf_pool_on_socket`](Self::pktmbuf_pool_on_socket) to choose the
+    /// NUMA socket explicitly.
     pub fn pktmbuf_pool(
         eal: &'eal Eal,
         name: &str,
@@ -237,6 +263,35 @@ impl<'eal> MemoryPool<'eal> {
         priv_size: u16,
         data_room_size: u16,
     ) -> Result<Self, MempoolError> {
+        Self::pktmbuf_pool_on_socket(
+            eal,
+            name,
+            capacity,
+            cache_size,
+            priv_size,
+            data_room_size,
+            eal.socket_id(),
+        )
+    }
+
+    /// Create a packet mbuf pool on an explicit NUMA socket.
+    ///
+    /// Elements are `rte_mbuf` headers with `data_room_size` bytes of data room;
+    /// the wrapper does not type-check them, it only owns the pool.
+    /// `socket_id` is forwarded to DPDK verbatim, so `SOCKET_ID_ANY` (`-1`)
+    /// lets DPDK resolve the socket itself, and an out-of-range socket makes
+    /// creation fail with a [`MempoolError`].
+    pub fn pktmbuf_pool_on_socket(
+        eal: &'eal Eal,
+        name: &str,
+        capacity: u32,
+        cache_size: u32,
+        priv_size: u16,
+        data_room_size: u16,
+        socket_id: i32,
+    ) -> Result<Self, MempoolError> {
+        let _ = eal;
+
         let cname = validate_name(name)?;
 
         let raw = unsafe {
@@ -246,7 +301,7 @@ impl<'eal> MemoryPool<'eal> {
                 cache_size,
                 priv_size,
                 data_room_size,
-                eal.socket_id(),
+                socket_id,
             )
         };
 

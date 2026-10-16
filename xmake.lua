@@ -1,4 +1,5 @@
 add_repositories("localrepo deps")
+add_rules("plugin.compile_commands.autoupdate")
 set_policy("package.requires_lock", true)
 
 -- if build on windows, all packages needs to be shared library

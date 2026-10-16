@@ -34,6 +34,8 @@ package("dpdk")
         end
         table.insert(configs, "-Dtests=".. tostring(package:config("tests")))
         table.insert(configs, "-Dexamples=".. tostring(package:config("examples")))
+        -- add this to fix xmake install could find correct library file problem
+        table.insert(configs, "-Ddrivers_install_subdir=")
 
         if not package:config("net/pcap") then
             table.insert(configs, "-Ddisable_drivers=net/pcap")

@@ -17,6 +17,7 @@ package("dpdk")
     add_configs("machine", {description = "Target CPU architecture", default = nil, type = "string"})
     add_configs("tests", {description = "Build unittests", default = false, type = "boolean"})
     add_configs("examples", {description = "Comma-seperated list of examples to build by default", default = "", type = "string"})
+    add_configs("disable_drivers", {description = "Comma-seperated list of drivers to be excluded from compiling", default = "", type = "string"})
 
     on_load(function (package)
         if is_plat("linux") and package:config("net/pcap") then
@@ -39,6 +40,9 @@ package("dpdk")
 
         if not package:config("net/pcap") then
             table.insert(configs, "-Ddisable_drivers=net/pcap")
+        end
+        if package:config("disable_drivers") ~= nil then
+            table.insert(configs, "-Ddisable_drivers=" .. package:config("disable_drivers"))
         end
 
         import("package.tools.meson").install(package, configs)

@@ -28,6 +28,7 @@ use std::ptr::{self, NonNull};
 use std::slice;
 
 use anyhow::Result;
+use bitflags::bitflags;
 use cfile;
 use cfile::foreign_types::ForeignType;
 

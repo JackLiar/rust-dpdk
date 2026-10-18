@@ -6,6 +6,7 @@ use std::mem;
 use std::ops::Deref;
 
 use anyhow::{Result, anyhow};
+use num_derive::{FromPrimitive, ToPrimitive};
 
 use crate::ffi;
 // use common::config;

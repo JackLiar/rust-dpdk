@@ -42,6 +42,7 @@ use std::ops::DerefMut;
 use std::os::raw::c_void;
 
 use anyhow::{Result, anyhow};
+use bitflags::bitflags;
 use rte_sys::rte_flow_attr;
 
 use crate::ethdev::PortId;

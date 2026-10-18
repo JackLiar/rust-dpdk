@@ -30,8 +30,10 @@ use std::os::unix::io::AsRawFd;
 use std::ptr::{self, NonNull};
 
 use anyhow::Result;
+use bitflags::bitflags;
 use cfile;
 use cfile::foreign_types::ForeignType;
+use lazy_static::lazy_static;
 use libc;
 
 use crate::errors::AsResult;

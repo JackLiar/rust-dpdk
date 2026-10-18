@@ -11,6 +11,7 @@ use std::string;
 
 use anyhow::Result;
 use libc;
+use num_derive::{FromPrimitive, ToPrimitive};
 
 use crate::errors::{AsResult, ErrorKind::CmdLineParseError};
 use crate::ether;

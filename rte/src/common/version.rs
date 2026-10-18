@@ -1,5 +1,7 @@
 use std::ffi::CStr;
 
+use lazy_static::lazy_static;
+
 use crate::ffi;
 
 /// Patch level number i.e. the z in yy.mm.z

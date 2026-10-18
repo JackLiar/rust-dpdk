@@ -7,6 +7,8 @@
 
 use std::mem;
 
+use bitflags::bitflags;
+
 use crate::ffi;
 
 /// The RSS offload types are defined based on flow types which are defined

@@ -2,6 +2,8 @@
 
 use std::ptr;
 
+use bitflags::bitflags;
+
 use crate::ffi;
 
 use super::rss::EthRssConf;

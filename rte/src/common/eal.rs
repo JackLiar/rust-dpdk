@@ -8,6 +8,7 @@ use std::ptr;
 
 use anyhow::Result;
 use log::debug;
+use num_derive::{FromPrimitive, ToPrimitive};
 
 use crate::errors::AsResult;
 use crate::ffi::{self, rte_proc_type_t::*};

@@ -7,15 +7,6 @@
     clippy::many_single_char_names
 )]
 
-#[macro_use]
-extern crate thiserror;
-#[macro_use]
-extern crate bitflags;
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate num_derive;
-
 pub mod ffi;
 
 pub mod common;

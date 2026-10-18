@@ -7,6 +7,7 @@ use std::mem;
 use std::os::raw::{c_char, c_void};
 
 use anyhow::Result;
+use num_derive::{FromPrimitive, ToPrimitive};
 
 use crate::errors::AsResult;
 use crate::ffi::{self, rte_dev_event_type::*};

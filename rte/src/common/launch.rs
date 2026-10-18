@@ -3,7 +3,8 @@
 use std::os::raw::{c_int, c_void};
 
 use anyhow::Result;
-use num_traits::FromPrimitive;
+use num_derive::{FromPrimitive, ToPrimitive};
+use num_traits::FromPrimitive as _;
 
 use crate::errors::AsResult;
 use crate::ffi;

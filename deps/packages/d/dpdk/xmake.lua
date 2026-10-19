@@ -38,11 +38,15 @@ package("dpdk")
         -- add this to fix xmake install could find correct library file problem
         table.insert(configs, "-Ddrivers_install_subdir=")
 
-        if not package:config("net/pcap") then
-            table.insert(configs, "-Ddisable_drivers=net/pcap")
-        end
+        local disable_drivers = ""
         if package:config("disable_drivers") ~= nil then
-            table.insert(configs, "-Ddisable_drivers=" .. package:config("disable_drivers"))
+            disable_drivers = package:config("disable_drivers")
+        end
+        if not package:config("net/pcap") then
+            disable_drivers = string.format("%s,%s", disable_drivers, "net/pcap")
+        end
+        if disable_drivers ~= "" then
+            table.insert(configs, "-Ddisable_drivers=" .. disable_drivers)
         end
 
         import("package.tools.meson").install(package, configs)

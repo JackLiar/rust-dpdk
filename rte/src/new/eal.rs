@@ -8,7 +8,7 @@ use std::ffi::CString;
 
 use crate::ffi;
 
-use super::error::{rte_errno, EalError, MempoolError};
+use super::error::{EalError, MempoolError, ThreadError, rte_errno};
 use super::mempool::MemoryPoolRef;
 
 /// Owns the DPDK Environment Abstraction Layer for as long as it is alive.
@@ -54,10 +54,7 @@ impl Eal {
             Err(_) => return Err(EalError::from_errno(libc::EINVAL)),
         };
 
-        let mut argv: Vec<*mut c_char> = cstrings
-            .iter()
-            .map(|arg| arg.as_ptr() as *mut c_char)
-            .collect();
+        let mut argv: Vec<*mut c_char> = cstrings.iter().map(|arg| arg.as_ptr() as *mut c_char).collect();
 
         let parsed = unsafe { ffi::rte_eal_init(argv.len() as c_int, argv.as_mut_ptr()) };
 
@@ -65,9 +62,31 @@ impl Eal {
             return Err(EalError::from_errno(rte_errno()));
         }
 
-        Ok(Self {
-            _not_send: PhantomData,
-        })
+        Ok(Self { _not_send: PhantomData })
+    }
+
+    /// Leak the EAL handle and return a process-lifetime reference.
+    ///
+    /// This is the supported way to keep DPDK alive for the whole process (the
+    /// common case for a data-plane daemon): [`Drop`] never calls
+    /// `rte_eal_cleanup()`, and every handle created from the returned
+    /// reference can outlive the current function.
+    #[must_use = "the leaked EAL reference must be stored somewhere"]
+    pub fn leak(self) -> &'static Eal {
+        Box::leak(Box::new(self))
+    }
+
+    /// Register the calling pthread as an EAL "non-EAL" lcore.
+    ///
+    /// DPDK worker threads created by `std::thread` are not EAL threads: their
+    /// `rte_lcore_id()` is [`ffi::LCORE_ID_ANY`], which disables the per-lcore
+    /// mempool cache and surprises some libraries. Call this once on every
+    /// packet-processing thread, after pinning it to a CPU.
+    ///
+    /// The returned guard unregisters the thread on drop and is deliberately
+    /// `!Send`: `rte_thread_unregister()` operates on the calling thread's TLS.
+    pub fn register_current_thread(&self) -> Result<ThreadGuard, ThreadError> {
+        register_current_thread()
     }
 
     /// Look up an existing mempool by name.
@@ -112,17 +131,12 @@ impl Eal {
             // and `MemoryPoolRef` carries no ownership, so it can never free it.
             let pool = MemoryPoolRef::from_raw(unsafe { NonNull::new_unchecked(mp) });
 
-            if let Err(payload) =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (ctx.f)(pool)))
-            {
+            if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (ctx.f)(pool))) {
                 ctx.panicked = Some(payload);
             }
         }
 
-        let mut ctx = Ctx {
-            f,
-            panicked: None,
-        };
+        let mut ctx = Ctx { f, panicked: None };
 
         unsafe { ffi::rte_mempool_walk(Some(trampoline::<F>), (&mut ctx as *mut Ctx<F>).cast()) };
 
@@ -149,6 +163,50 @@ impl Eal {
     #[inline]
     pub fn is_primary(&self) -> bool {
         unsafe { ffi::rte_eal_process_type() == ffi::rte_proc_type_t::RTE_PROC_PRIMARY }
+    }
+}
+
+/// Register the calling pthread as an EAL non-EAL lcore.
+///
+/// This is the free-function form of [`Eal::register_current_thread`], usable
+/// on worker threads that do not have access to the `Eal` token. The EAL must
+/// already be initialised and must outlive the returned guard.
+pub fn register_current_thread() -> Result<ThreadGuard, ThreadError> {
+    // SAFETY: `rte_thread_register()` only touches per-thread EAL state; the
+    // caller is responsible for the EAL lifetime documented above.
+    if unsafe { ffi::rte_thread_register() } != 0 {
+        return Err(ThreadError::from_rte_errno());
+    }
+
+    Ok(ThreadGuard { _not_send: PhantomData })
+}
+
+/// Registration of the current thread as an EAL lcore.
+///
+/// The thread is unregistered when the guard is dropped. The guard is `!Send`
+/// on purpose: DPDK's registration state lives in thread-local storage.
+#[must_use = "the thread is unregistered when the guard is dropped"]
+pub struct ThreadGuard {
+    _not_send: PhantomData<*mut ()>,
+}
+
+impl ThreadGuard {
+    /// lcore id assigned to this thread, or [`ffi::LCORE_ID_ANY`].
+    #[inline]
+    pub fn lcore_id(&self) -> u32 {
+        unsafe { ffi::_rte_lcore_id() }
+    }
+
+    /// NUMA socket of this thread's current CPU affinity mask.
+    #[inline]
+    pub fn socket_id(&self) -> i32 {
+        unsafe { ffi::rte_socket_id() as i32 }
+    }
+}
+
+impl Drop for ThreadGuard {
+    fn drop(&mut self) {
+        unsafe { ffi::rte_thread_unregister() };
     }
 }
 

@@ -19,6 +19,7 @@ use core::ptr::NonNull;
 use std::io::Read;
 
 use super::*;
+use crate::ffi;
 
 /// A 64 byte element with a recognisable initialisation tag.
 #[repr(C, align(64))]
@@ -67,6 +68,34 @@ fn end_to_end() {
         Eal::init(&eal_args()).expect("EAL init failed; run with XDG_RUNTIME_DIR pointing at a writable directory");
 
     assert!(eal.is_primary());
+
+    // ---------------------------------------------------- non-EAL thread registration
+
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let guard = match register_current_thread() {
+                    Ok(guard) => guard,
+                    Err(err) => {
+                        // Some environments (e.g. multiprocess mode) cannot
+                        // register non-EAL threads; do not hide the reason.
+                        eprintln!("skipping non-EAL thread registration assertion: {err}");
+                        return;
+                    }
+                };
+
+                assert_ne!(guard.lcore_id(), ffi::LCORE_ID_ANY, "thread should get an lcore id");
+                let _socket_id = guard.socket_id();
+                drop(guard);
+                assert_eq!(
+                    unsafe { ffi::_rte_lcore_id() },
+                    ffi::LCORE_ID_ANY,
+                    "dropping ThreadGuard should unregister the thread"
+                );
+            })
+            .join()
+            .expect("thread registration test panicked");
+    });
 
     // ---------------------------------------------------------------- mempool
 
@@ -167,9 +196,30 @@ fn end_to_end() {
         .expect("create pktmbuf pool");
 
     // Direct allocation wraps `rte_pktmbuf_alloc()`: DPDK resets the buffer.
-    let pkt = mbuf_pool.alloc_mbuf().expect("alloc one mbuf");
+    let mut pkt = mbuf_pool.alloc_mbuf().expect("alloc one mbuf");
     assert_eq!(pkt.pkt_len(), 0);
     assert_eq!(pkt.data_len(), 0);
+    assert!(pkt.data().is_empty());
+    assert!(pkt.contiguous_data().expect("reset mbuf is contiguous").is_empty());
+    assert!(pkt.is_contiguous());
+    assert_eq!(pkt.data_off(), ffi::RTE_PKTMBUF_HEADROOM as u16);
+    assert_eq!(pkt.vlan_tci(), None);
+    assert_eq!(pkt.vlan_tci_outer(), None);
+    assert_eq!(pkt.rss_hash(), None);
+    assert!(pkt.linearize().is_ok(), "single-segment mbuf is already linear");
+
+    // `linearize()` mutates the mbuf, so it refuses shared packets.
+    let shared = pkt.clone();
+    assert!(matches!(pkt.linearize(), Err(MbufError::Shared { refcnt: 2 })));
+    drop(shared);
+    assert!(pkt.linearize().is_ok());
+
+    // `Mbuf: Clone + Send`: the clone can be dropped on another thread while
+    // the original keeps the buffer alive.
+    let clone = pkt.clone();
+    std::thread::scope(|scope| {
+        scope.spawn(move || drop(clone)).join().expect("clone drop panicked");
+    });
     drop(pkt);
     assert_eq!(mbuf_pool.available(), 1024);
 
@@ -194,20 +244,90 @@ fn end_to_end() {
     assert_eq!(port.id(), 0);
 
     let info = port.info();
-    assert!(!info.driver_name.is_empty());
-    let _mac = port.mac_addr();
+    assert!(!info.driver_name().is_empty());
+    let _ = info.as_raw();
+    let _ = info.flow_type_rss_offloads;
+    let _ = info.reta_size;
+    let _ = info.hash_key_size;
+    let _ = info.min_mtu;
+    let _ = info.max_mtu;
+    let _ = info.min_rx_bufsize;
+    let _ = info.rx_desc_lim.nb_max;
+    let _ = info.tx_desc_lim.nb_max;
+    assert_eq!(info.socket_id, port.socket_id());
+
+    let mac = port.mac_addr();
+    assert_eq!(mac.octets(), mac.addr_bytes);
+    assert!(!mac.to_string().is_empty());
+
+    // RSS configuration wraps the native `rte_eth_conf`; the key backing store
+    // is owned by `PortConfig`.
+    let rss_cfg = PortConfig::default()
+        .with_rss(RssHash::IP | RssHash::TCP)
+        .with_max_rx_pkt_len(1536);
+    assert!(rss_cfg.rss().is_some());
+    assert_eq!(rss_cfg.rss().unwrap().rss_hf, (RssHash::IP | RssHash::TCP).bits());
+    assert_eq!(rss_cfg.max_rx_pkt_len(), Some(1536));
+    assert_eq!(rss_cfg.rxmode.mq_mode, ffi::rte_eth_rx_mq_mode::ETH_MQ_RX_RSS);
+    assert!(RssHash::IP.contains(RssHash::IPV4));
+    assert!(RssHash::IP.contains(RssHash::IPV6));
+    assert!(RssHash::TCP.contains(RssHash::IPV4_TCP));
+    assert_eq!(
+        RssHash::TCP,
+        RssHash::IPV4_TCP | RssHash::IPV6_TCP,
+        "combined TCP constant should be the IPv4+IPv6 union"
+    );
+
+    // Cloning a config must re-point the native RSS key at the clone's Vec.
+    let key = vec![0x11u8; 40];
+    let keyed = PortConfig::default().with_rss(RssHash::TCP).with_rss_key(key.clone());
+    let keyed_clone = keyed.clone();
+    assert_eq!(keyed_clone.rss_key(), Some(key.as_slice()));
+    assert_eq!(
+        keyed_clone.rss_key().unwrap().as_ptr(),
+        keyed_clone.rss().unwrap().rss_key as *const u8
+    );
+
+    let rss = RssConfig::new(RssHash::TCP).with_key(key.clone());
+    let rss_clone = rss.clone();
+    assert_eq!(rss_clone.hf(), RssHash::TCP.bits());
+    assert_eq!(rss_clone.key(), Some(key.as_slice()));
+    assert_eq!(
+        rss_clone.key().unwrap().as_ptr(),
+        rss_clone.as_raw().rss_key as *const u8
+    );
+
+    let mut rx_desc = 128u16;
+    let mut tx_desc = 0u16;
+    port.adjust_nb_rx_tx_desc(&mut rx_desc, &mut tx_desc)
+        .expect("adjust descriptor counts");
 
     port.configure(1, 0, &PortConfig::default()).expect("configure port");
+
+    let rx_queue_cfg = RxQueueConfig::default()
+        .with_nb_desc(rx_desc)
+        .with_free_thresh(32)
+        .with_drop_en(true);
+    assert_eq!(rx_queue_cfg.nb_desc, rx_desc);
+    assert_eq!(rx_queue_cfg.rx_free_thresh, 32);
+    assert_eq!(rx_queue_cfg.rx_drop_en, 1);
     let queue = port
-        .rx_queue_setup(0, 128, None, mbuf_pool.as_ref())
+        .rx_queue_setup_with(0, &rx_queue_cfg, mbuf_pool.as_ref())
         .expect("setup RX queue");
     port.start().expect("start port");
     port.promiscuous_enable().expect("enable promiscuous mode");
 
     let link = port.link_nowait();
-    let _ = link;
+    let _ = (link.up(), link.speed(), link.duplex(), link.autoneg());
     let _ = port.is_promiscuous();
     let _ = port.read_clock();
+
+    // MTU/statistics APIs are exercised against net_null; some PMDs do not
+    // implement all of them, so only assert on the functions we can rely on.
+    if let Ok(mtu) = port.mtu() {
+        let _ = mtu;
+        let _ = port.set_mtu(mtu);
+    }
 
     // net_null fabricates 64 byte packets on every burst.
     let mut bufs: [Option<Mbuf<'_>>; 32] = std::array::from_fn(|_| None);
@@ -216,15 +336,34 @@ fn end_to_end() {
     for _ in 0..64 {
         let n = queue.rx_burst(&mut bufs);
 
-        for packet in bufs[..n].iter_mut().filter_map(Option::take) {
+        for mut packet in bufs[..n].iter_mut().filter_map(Option::take) {
             received += 1;
 
             assert_eq!(packet.pkt_len(), 64);
             assert_eq!(packet.data_len(), 64);
             assert_eq!(packet.port(), 0);
             assert_eq!(packet.nb_segs(), 1);
+            assert_eq!(packet.data().len(), 64);
+            assert!(packet.is_contiguous());
+            assert_eq!(
+                packet.contiguous_data().expect("net_null packets are contiguous").len(),
+                64
+            );
+            assert_eq!(packet.segments().count(), 1);
+            assert_eq!(packet.vlan_tci(), None);
+            assert_eq!(packet.vlan_tci_outer(), None);
+            assert_eq!(packet.rss_hash(), None);
+            assert!(packet.linearize().is_ok());
             // net_null does not stamp packets, so this must fall back.
             assert_eq!(ts.get(&packet), None);
+
+            let clone = packet.clone();
+            std::thread::scope(|scope| {
+                scope
+                    .spawn(move || drop(clone))
+                    .join()
+                    .expect("packet clone drop panicked");
+            });
         }
 
         if received > 0 {
@@ -235,6 +374,19 @@ fn end_to_end() {
     assert!(received > 0, "net_null0 should have delivered packets");
     assert_eq!(queue.port_id(), 0);
     assert_eq!(queue.queue_id(), 0);
+
+    let port_stats = port.stats().expect("read port statistics");
+    let _ = port_stats.ipackets;
+    let _ = port_stats.rx_nombuf;
+    let _ = port_stats.q_ipackets;
+    let queue_stats = port.queue_stats(0).expect("read queue 0 statistics");
+    assert_eq!(queue_stats.queue_id(), 0);
+    let _ = queue_stats.packets();
+    let _ = queue_stats.bytes();
+    let _ = queue_stats.errors();
+    let _ = queue_stats.as_raw().ipackets;
+    // DPDK 20.11 only exposes 16 queue slots in `rte_eth_stats`.
+    assert!(port.queue_stats(ffi::RTE_ETHDEV_QUEUE_STAT_CNTRS as u16).is_none());
 
     // ------------------------------------------------------------------- buses
 

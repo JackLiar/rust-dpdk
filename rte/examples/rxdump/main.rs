@@ -223,7 +223,7 @@ fn main() {
     println!(
         "port {}: driver={} mac={}",
         port.id(),
-        info.driver_name,
+        info.driver_name(),
         port.mac_addr()
     );
 
@@ -260,9 +260,9 @@ fn main() {
 
     println!(
         "link: {} ({} Mbps, {})",
-        if link.up { "up" } else { "down" },
-        link.speed,
-        if link.duplex { "full-duplex" } else { "half-duplex" }
+        if link.up() { "up" } else { "down" },
+        link.speed(),
+        if link.duplex() { "full-duplex" } else { "half-duplex" }
     );
 
     if hw_ts.is_some() {

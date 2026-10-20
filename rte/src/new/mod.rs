@@ -80,11 +80,12 @@ mod tests;
 
 pub use bus::{Bus, BusDevice, IovaMode};
 pub use cache::{Cache, CacheRef};
-pub use eal::Eal;
-pub use error::{BusError, EalError, MempoolError, PortError, Result, TimestampError};
+pub use eal::{Eal, ThreadGuard, register_current_thread};
+pub use error::{BusError, EalError, MbufError, MempoolError, PortError, Result, ThreadError, TimestampError};
 pub use ethdev::{
-    rx_offloads, EtherAddr, LinkStatus, Port, PortConfig, PortId, PortInfo, QueueId, RxQueue,
+    EtherAddr, LinkStatus, Port, PortConfig, PortId, PortInfo, PortStats, QueueId, QueueStats, RssConfig, RssHash,
+    RxQueue, RxQueueConfig, rx_offloads,
 };
-pub use mbuf::{Mbuf, RxTimestamp, DEFAULT_DATA_ROOM_SIZE};
-pub use mempool::{Builder, MemoryPool, MemoryPoolFlags, MemoryPoolRef, PoolInfo, MEMPOOL_NAMESIZE};
+pub use mbuf::{DEFAULT_DATA_ROOM_SIZE, Mbuf, MbufSegments, RxTimestamp};
+pub use mempool::{Builder, MEMPOOL_NAMESIZE, MemoryPool, MemoryPoolFlags, MemoryPoolRef, PoolInfo};
 pub use object::{PoolElement, PoolObject};

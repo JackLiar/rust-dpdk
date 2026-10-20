@@ -57,6 +57,65 @@ impl EalError {
     }
 }
 
+/// Failure while operating on a packet buffer (`rte_mbuf`).
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum MbufError {
+    /// `rte_pktmbuf_linearize()` could not make the packet contiguous.
+    #[error("failed to linearize mbuf (rte_errno {errno}: {message})")]
+    Linearize {
+        /// The `rte_errno` captured at the point of failure.
+        errno: i32,
+        /// `rte_strerror(errno)`.
+        message: String,
+    },
+
+    /// The mbuf is shared (`refcnt > 1`), so mutating it would affect another owner.
+    #[error("cannot linearize a shared mbuf (refcnt {refcnt})")]
+    Shared {
+        /// Current mbuf reference count.
+        refcnt: u16,
+    },
+}
+
+impl MbufError {
+    /// Capture the current `rte_errno`.
+    pub(crate) fn from_rte_errno() -> Self {
+        let errno = rte_errno();
+
+        Self::Linearize {
+            errno,
+            message: rte_strerror(errno),
+        }
+    }
+}
+
+/// Failure while registering a non-EAL thread with the EAL.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ThreadError {
+    /// `rte_thread_register()` failed.
+    #[error("failed to register the current thread as an EAL thread (rte_errno {errno}: {message})")]
+    Register {
+        /// The `rte_errno` captured at the point of failure.
+        errno: i32,
+        /// `rte_strerror(errno)`.
+        message: String,
+    },
+}
+
+impl ThreadError {
+    /// Capture the current `rte_errno`.
+    pub(crate) fn from_rte_errno() -> Self {
+        let errno = rte_errno();
+
+        Self::Register {
+            errno,
+            message: rte_strerror(errno),
+        }
+    }
+}
+
 /// Failure while creating, looking up or destroying a mempool.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -79,11 +138,7 @@ pub enum MempoolError {
 
     /// The name is empty, too long, or contains an interior NUL.
     #[error("invalid mempool name `{name}`: {len} bytes, at most {max} are allowed")]
-    InvalidName {
-        name: String,
-        len: usize,
-        max: usize,
-    },
+    InvalidName { name: String, len: usize, max: usize },
 
     /// `get()` found no free object.
     #[error("mempool `{name}` is exhausted")]
@@ -120,11 +175,7 @@ pub enum PortError {
 
     /// `rte_eth_dev_configure()` failed.
     #[error("failed to configure port {id} (rte_errno {errno}: {message})")]
-    Configure {
-        id: u16,
-        errno: i32,
-        message: String,
-    },
+    Configure { id: u16, errno: i32, message: String },
 
     /// `rte_eth_rx_queue_setup()` failed.
     #[error("failed to set up RX queue {queue} of port {id} (rte_errno {errno}: {message})")]
@@ -137,27 +188,31 @@ pub enum PortError {
 
     /// `rte_eth_dev_start()` failed.
     #[error("failed to start port {id} (rte_errno {errno}: {message})")]
-    Start {
-        id: u16,
-        errno: i32,
-        message: String,
-    },
+    Start { id: u16, errno: i32, message: String },
 
     /// A promiscuous mode query or update failed.
     #[error("promiscuous mode operation on port {id} failed (rte_errno {errno}: {message})")]
-    Promiscuous {
-        id: u16,
-        errno: i32,
-        message: String,
-    },
+    Promiscuous { id: u16, errno: i32, message: String },
+
+    /// `rte_eth_stats_get()` failed.
+    #[error("failed to read statistics of port {id} (rte_errno {errno}: {message})")]
+    Stats { id: u16, errno: i32, message: String },
+
+    /// An MTU query or update failed.
+    #[error("MTU operation on port {id} failed (rte_errno {errno}: {message})")]
+    Mtu { id: u16, errno: i32, message: String },
+
+    /// An RSS hash configuration operation failed.
+    #[error("RSS hash operation on port {id} failed (rte_errno {errno}: {message})")]
+    Rss { id: u16, errno: i32, message: String },
+
+    /// `rte_eth_dev_adjust_nb_rx_tx_desc()` failed.
+    #[error("failed to adjust descriptor counts of port {id} (rte_errno {errno}: {message})")]
+    AdjustDesc { id: u16, errno: i32, message: String },
 
     /// Anything else that came back through `rte_errno`.
     #[error("port {id}: DPDK error {errno}: {message}")]
-    Rte {
-        id: u16,
-        errno: i32,
-        message: String,
-    },
+    Rte { id: u16, errno: i32, message: String },
 }
 
 impl PortError {

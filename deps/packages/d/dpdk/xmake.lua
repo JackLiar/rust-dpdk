@@ -2,10 +2,8 @@ package("dpdk")
     add_urls("https://fast.dpdk.org/rel/dpdk-$(version).tar.xz")
     add_versions("20.11.10", "60d1ccd072102dd032c7915f6664bf4124f50e712045b6a3c55e651cb75cd530")
     add_versions("24.11.2", "bde714a0a86acce6c0ff679804e07275423c5972b13891a1432b5631ab9dd6cf")
-    add_deps("meson", "ninja")
+    add_deps("meson", "ninja", {binary = true})
     -- add_deps("openssl", {configs = { shared = true }})
-    -- add_deps("libpcap", {configs = { shared = true, remote = true }})
-    -- add_deps("numactl", {configs = { shared = true }})
     if is_plat("windows") then
         add_deps("pkgconf")
     else
@@ -13,6 +11,7 @@ package("dpdk")
     end
 
     add_configs("net/pcap", {description = "Build the libpcap PMD (net/pcap)", default = false, type = "boolean"})
+    add_configs("numa", {description = "Build dpdk with libnuma", default = false, type = "boolean"})
     add_configs("kmods", {description = "Enable kernel modules build", default = false, type = "boolean"})
     add_configs("machine", {description = "Target CPU architecture", default = nil, type = "string"})
     add_configs("tests", {description = "Build unittests", default = false, type = "boolean"})
@@ -20,8 +19,13 @@ package("dpdk")
     add_configs("disable_drivers", {description = "Comma-seperated list of drivers to be excluded from compiling", default = "", type = "string"})
 
     on_load(function (package)
-        if is_plat("linux") and package:config("net/pcap") then
-            package:add("deps", "libpcap", {configs = {shared = true, remote = false, libnl = false}})
+        if is_plat("linux") then
+            if package:config("net/pcap") then
+                package:add("deps", "libpcap", {configs = {shared = package:config("shared"), remote = false, libnl = false}})
+            end
+            if package:config("numa") then
+                package:add("deps", "numactl", {configs = {shared = package:config("shared")}})
+            end
         end
     end)
 
@@ -49,7 +53,14 @@ package("dpdk")
             table.insert(configs, "-Ddisable_drivers=" .. disable_drivers)
         end
 
-        import("package.tools.meson").install(package, configs)
+        local meson_deps = {}
+        if package:config("net/pcap") then
+            table.insert(meson_deps, "libpcap")
+        end
+        if package:config("numa") then
+            table.insert(meson_deps, "numactl")
+        end
+        import("package.tools.meson").install(package, configs, {packagedeps = meson_deps})
 
         if package:config("net/pcap") then
             assert(#os.files(path.join(package:installdir("lib"), "librte_net_pcap*")) > 0,

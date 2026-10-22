@@ -481,6 +481,86 @@ impl Deref for RxQueueConfig {
     }
 }
 
+/// Per-queue TX configuration wrapping `rte_eth_txconf`.
+///
+/// `nb_desc` is kept outside the native struct because
+/// `rte_eth_tx_queue_setup()` takes it as a separate argument.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TxQueueConfig {
+    /// Number of TX descriptors.
+    pub nb_desc: u16,
+    raw: ffi::rte_eth_txconf,
+}
+
+impl Default for TxQueueConfig {
+    fn default() -> Self {
+        let mut raw = ffi::rte_eth_txconf::default();
+        raw.tx_free_thresh = 32;
+
+        Self { nb_desc: 1024, raw }
+    }
+}
+
+impl TxQueueConfig {
+    /// Native `rte_eth_txconf` view.
+    #[inline]
+    pub fn as_raw(&self) -> &ffi::rte_eth_txconf {
+        &self.raw
+    }
+
+    /// Set the descriptor count.
+    #[must_use]
+    pub fn with_nb_desc(mut self, nb_desc: u16) -> Self {
+        self.nb_desc = nb_desc;
+        self
+    }
+
+    /// Set `tx_free_thresh`.
+    #[must_use]
+    pub fn with_free_thresh(mut self, free_thresh: u16) -> Self {
+        self.raw.tx_free_thresh = free_thresh;
+        self
+    }
+
+    /// Set `tx_rs_thresh`.
+    #[must_use]
+    pub fn with_rs_thresh(mut self, rs_thresh: u16) -> Self {
+        self.raw.tx_rs_thresh = rs_thresh;
+        self
+    }
+
+    /// Set the prefetch/host/write-back thresholds.
+    #[must_use]
+    pub fn with_thresh(mut self, pthresh: u8, hthresh: u8, wthresh: u8) -> Self {
+        self.raw.tx_thresh.pthresh = pthresh;
+        self.raw.tx_thresh.hthresh = hthresh;
+        self.raw.tx_thresh.wthresh = wthresh;
+        self
+    }
+
+    /// Set `tx_deferred_start`.
+    #[must_use]
+    pub fn with_deferred_start(mut self, deferred_start: bool) -> Self {
+        self.raw.tx_deferred_start = u8::from(deferred_start);
+        self
+    }
+
+    /// Set queue-level offloads.
+    #[must_use]
+    pub fn with_offloads(mut self, offloads: u64) -> Self {
+        self.raw.offloads = offloads;
+        self
+    }
+}
+
+impl Deref for TxQueueConfig {
+    type Target = ffi::rte_eth_txconf;
+
+    fn deref(&self) -> &Self::Target {
+        &self.raw
+    }
+}
+
 /// Port level configuration wrapping the native `rte_eth_conf`.
 ///
 /// The native RSS config stores a borrowed key pointer, so this wrapper owns the
@@ -968,6 +1048,56 @@ impl Port {
         self.rx_queue_setup(queue, cfg.nb_desc, Some(*cfg.as_raw()), pool)
     }
 
+    /// Set up a TX queue on this port.
+    ///
+    /// The returned queue borrows the port, so the port cannot be closed while
+    /// packets may still be handed to it. TX descriptors do not reference a
+    /// mempool; packet buffers are passed to [`TxQueue::tx_burst`] instead.
+    pub fn tx_queue_setup<'port>(
+        &'port self,
+        queue: QueueId,
+        nb_desc: u16,
+        conf: Option<ffi::rte_eth_txconf>,
+    ) -> Result<TxQueue<'port>, PortError> {
+        let socket_id = self.socket_id() as c_uint;
+
+        let ret = unsafe {
+            ffi::rte_eth_tx_queue_setup(
+                self.id,
+                queue,
+                nb_desc,
+                socket_id,
+                conf.as_ref().map_or(ptr::null(), |conf| conf as *const _),
+            )
+        };
+
+        if ret != 0 {
+            let errno = rte_errno();
+
+            return Err(PortError::TxQueueSetup {
+                id: self.id,
+                queue,
+                errno,
+                message: rte_strerror(errno),
+            });
+        }
+
+        Ok(TxQueue {
+            port: self.id,
+            queue,
+            _port: PhantomData,
+        })
+    }
+
+    /// Set up a TX queue using the typed [`TxQueueConfig`].
+    pub fn tx_queue_setup_with<'port>(
+        &'port self,
+        queue: QueueId,
+        cfg: &TxQueueConfig,
+    ) -> Result<TxQueue<'port>, PortError> {
+        self.tx_queue_setup(queue, cfg.nb_desc, Some(*cfg.as_raw()))
+    }
+
     /// Start the port.
     pub fn start(&self) -> Result<(), PortError> {
         let ret = unsafe { ffi::rte_eth_dev_start(self.id) };
@@ -1166,6 +1296,93 @@ impl<'port, 'pool> RxQueue<'port, 'pool> {
 impl fmt::Debug for RxQueue<'_, '_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RxQueue")
+            .field("port", &self.port)
+            .field("queue", &self.queue)
+            .finish()
+    }
+}
+
+/// A TX queue.
+///
+/// Borrows the port, so the port cannot be closed while packets may still be
+/// handed to it. TX descriptors do not own a mempool; each [`tx_burst`] call
+/// transfers ownership of the accepted packet buffers to the PMD.
+///
+/// [`tx_burst`]: TxQueue::tx_burst
+pub struct TxQueue<'port> {
+    port: PortId,
+    queue: QueueId,
+    _port: PhantomData<&'port Port>,
+}
+
+// SAFETY: a TX queue handle can be moved to the lcore that will feed it. The
+// borrow lifetime still guarantees the port outlives the queue; `TxQueue` is
+// deliberately **not** `Sync`, because DPDK requires a single sender per queue.
+unsafe impl Send for TxQueue<'_> {}
+
+impl<'port> TxQueue<'port> {
+    /// Port this queue belongs to.
+    #[inline]
+    pub fn port_id(&self) -> PortId {
+        self.port
+    }
+
+    /// Queue id.
+    #[inline]
+    pub fn queue_id(&self) -> QueueId {
+        self.queue
+    }
+
+    /// Send up to `packets.len()` packets.
+    ///
+    /// Every slot must be `Some` before the call. DPDK accepts a contiguous
+    /// prefix of the burst; those buffers are handed to the PMD and their slots
+    /// become `None`. Slots not accepted stay `Some`, so retrying with
+    /// `&mut packets[sent..]` is safe, and dropping them returns the reference
+    /// to the mempool.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any slot is `None`, because DPDK would otherwise receive a
+    /// null mbuf pointer.
+    pub fn tx_burst<'pool>(&self, packets: &mut [Option<Mbuf<'pool>>]) -> usize {
+        if packets.is_empty() {
+            return 0;
+        }
+
+        assert!(
+            packets.iter().all(Option::is_some),
+            "tx_burst() needs a fully populated burst buffer"
+        );
+
+        // SAFETY: `Option<Mbuf>` has the same representation as `*mut rte_mbuf`
+        // (asserted in `new::mbuf`), all slots are non-null, and the slice is
+        // valid for the duration of the call.
+        let accepted = unsafe {
+            ffi::_rte_eth_tx_burst(
+                self.port,
+                self.queue,
+                packets.as_mut_ptr() as *mut *mut ffi::rte_mbuf,
+                packets.len() as u16,
+            ) as usize
+        }
+        .min(packets.len());
+
+        // Accepted buffers are now owned by the PMD. Forget our handles instead
+        // of letting `Drop` free them, and leave the slots empty.
+        for slot in &mut packets[..accepted] {
+            if let Some(packet) = slot.take() {
+                let _ = packet.into_raw();
+            }
+        }
+
+        accepted
+    }
+}
+
+impl fmt::Debug for TxQueue<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TxQueue")
             .field("port", &self.port)
             .field("queue", &self.queue)
             .finish()

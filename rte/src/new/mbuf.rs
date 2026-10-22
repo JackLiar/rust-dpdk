@@ -22,6 +22,16 @@ use super::mempool::MemoryPoolRef;
 /// packet mbuf headroom).
 pub const DEFAULT_DATA_ROOM_SIZE: u16 = ffi::RTE_MBUF_DEFAULT_BUF_SIZE as u16;
 
+/// Headroom reserved in front of packet data in a pktmbuf pool.
+pub const PACKET_HEADROOM: u16 = ffi::RTE_PKTMBUF_HEADROOM as u16;
+
+/// Largest packet that fits in a pktmbuf whose data room is a `u16`.
+///
+/// The data room includes the headroom, so this is
+/// `u16::MAX - PACKET_HEADROOM` (65407 bytes with the default 128 byte
+/// headroom).
+pub const MAX_PACKET_SIZE: u16 = u16::MAX - PACKET_HEADROOM;
+
 /// A packet buffer checked out of a mempool.
 ///
 /// `Mbuf` is not a [`PoolElement`](super::PoolElement): packet mbuf pools are
@@ -118,6 +128,16 @@ impl<'pool> Mbuf<'pool> {
         unsafe { self.raw.as_ref() }.buf_len
     }
 
+    /// Current reference count.
+    ///
+    /// A freshly allocated mbuf has a refcount of one. Cloning a [`Mbuf`]
+    /// increments it; DPDK decrements it when a TX queue or `Drop` releases the
+    /// packet.
+    #[inline]
+    pub fn refcnt(&self) -> u16 {
+        unsafe { ffi::_rte_mbuf_refcnt_read(self.raw.as_ptr()) }
+    }
+
     /// First segment of the packet data.
     ///
     /// For segmented packets this is only the first segment; use
@@ -144,6 +164,55 @@ impl<'pool> Mbuf<'pool> {
     #[inline]
     pub fn contiguous_data(&self) -> Option<&[u8]> {
         if self.is_contiguous() { Some(self.data()) } else { None }
+    }
+
+    /// Replace the packet contents with `data`.
+    ///
+    /// The data is copied at the mbuf's current `data_off`, so the configured
+    /// headroom is preserved. A freshly allocated mbuf is single-segment and
+    /// uniquely owned; shared or segmented mbufs are rejected.
+    ///
+    /// On error the mbuf is left unchanged.
+    pub fn set_data(&mut self, data: &[u8]) -> Result<(), MbufError> {
+        let refcnt = self.refcnt();
+
+        if refcnt != 1 {
+            return Err(MbufError::Shared { refcnt });
+        }
+
+        // SAFETY: the mbuf is alive for the duration of the borrow and this
+        // method holds `&mut self`, so DPDK cannot concurrently mutate it.
+        let mbuf = unsafe { self.raw.as_mut() };
+
+        if mbuf.nb_segs != 1 || !mbuf.next.is_null() {
+            return Err(MbufError::NotSingleSegment { nb_segs: mbuf.nb_segs });
+        }
+
+        let data_off = mbuf.data_off as usize;
+        let capacity = (mbuf.buf_len as usize).saturating_sub(data_off);
+
+        if data.len() > capacity {
+            return Err(MbufError::TooLarge {
+                len: data.len(),
+                capacity,
+            });
+        }
+
+        // SAFETY: `capacity` was checked against `buf_len - data_off`, and the
+        // source slice is valid for `data.len()` bytes.
+        unsafe {
+            if !data.is_empty() {
+                core::ptr::copy_nonoverlapping(data.as_ptr(), (mbuf.buf_addr as *mut u8).add(data_off), data.len());
+            }
+
+            mbuf.data_len = data.len() as u16;
+            mbuf.pkt_len = data.len() as u32;
+            mbuf.nb_segs = 1;
+            mbuf.next = core::ptr::null_mut();
+            mbuf.ol_flags = 0;
+        }
+
+        Ok(())
     }
 
     /// Iterate over every segment of the packet.

@@ -71,10 +71,26 @@ pub enum MbufError {
     },
 
     /// The mbuf is shared (`refcnt > 1`), so mutating it would affect another owner.
-    #[error("cannot linearize a shared mbuf (refcnt {refcnt})")]
+    #[error("cannot modify a shared mbuf (refcnt {refcnt})")]
     Shared {
         /// Current mbuf reference count.
         refcnt: u16,
+    },
+
+    /// The packet does not fit in the mbuf's data room.
+    #[error("packet of {len} bytes does not fit in the remaining {capacity} byte(s)")]
+    TooLarge {
+        /// Requested packet length.
+        len: usize,
+        /// Space available from `data_off` to `buf_len`.
+        capacity: usize,
+    },
+
+    /// The operation only supports a single-segment mbuf.
+    #[error("operation requires a single-segment mbuf (nb_segs {nb_segs})")]
+    NotSingleSegment {
+        /// Current number of segments.
+        nb_segs: u16,
     },
 }
 
@@ -186,6 +202,15 @@ pub enum PortError {
         message: String,
     },
 
+    /// `rte_eth_tx_queue_setup()` failed.
+    #[error("failed to set up TX queue {queue} of port {id} (rte_errno {errno}: {message})")]
+    TxQueueSetup {
+        id: u16,
+        queue: u16,
+        errno: i32,
+        message: String,
+    },
+
     /// `rte_eth_dev_start()` failed.
     #[error("failed to start port {id} (rte_errno {errno}: {message})")]
     Start { id: u16, errno: i32, message: String },
@@ -221,6 +246,40 @@ impl PortError {
         let errno = rte_errno();
 
         Self::Rte {
+            id,
+            errno,
+            message: rte_strerror(errno),
+        }
+    }
+}
+
+/// Failure while launching a task on a DPDK lcore.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum LcoreError {
+    /// The main lcore cannot be used for a worker task.
+    #[error("lcore {id} is the main lcore")]
+    MainLcore { id: u32 },
+
+    /// The lcore is not part of the EAL core mask.
+    #[error("lcore {id} is not enabled")]
+    Disabled { id: u32 },
+
+    /// This scope already launched a task on the lcore.
+    #[error("lcore {id} already has a task launched by this scope")]
+    AlreadyLaunched { id: u32 },
+
+    /// `rte_eal_remote_launch()` failed.
+    #[error("failed to launch a task on lcore {id} (rte_errno {errno}: {message})")]
+    Launch { id: u32, errno: i32, message: String },
+}
+
+impl LcoreError {
+    /// Capture the current `rte_errno` with an lcore context.
+    pub(crate) fn from_rte_errno(id: u32) -> Self {
+        let errno = rte_errno();
+
+        Self::Launch {
             id,
             errno,
             message: rte_strerror(errno),

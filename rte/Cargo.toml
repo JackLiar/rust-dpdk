@@ -195,6 +195,8 @@ pretty_env_logger = { workspace = true }
 num_cpus = { workspace = true }
 getopts = "0.2"
 nix = "0.31"
+clap = { version = "4", features = ["derive"] }
+pcap = "2"
 
 [lib]
 name = "rte"
@@ -226,3 +228,8 @@ path = "examples/cmdline/main.rs"
 [[example]]
 name = "ethtool"
 path = "examples/ethtool/main.rs"
+
+[[example]]
+name = "dpdk-replay"
+path = "examples/dpdk-replay/main.rs"
+required-features = ["eal", "mbuf", "mempool", "ethdev"]

@@ -28,8 +28,9 @@
 //! | pool borrow | [`MemoryPoolRef<'a>`] | `Copy`, no `Drop`, cannot free |
 //! | object ownership | [`PoolObject<'pool, T>`] | `Drop` returns the object to its pool |
 //! | port ownership | [`Port`] | `Drop` stops and closes the port |
-//! | queue borrow | [`RxQueue<'port, 'pool>`] | borrows port **and** pool, so neither can be torn down first |
+//! | queue borrow | [`RxQueue<'port, 'pool>`] / [`TxQueue<'port>`] | borrows the port; RX also borrows its pool |
 //! | packet borrow | [`Mbuf<'pool>`] | `Drop` calls `rte_pktmbuf_free`, borrows the backing pool |
+//! | lcore tasks | [`LcoreScope`] | waits for every launched task before it is dropped |
 //! | bus borrow | [`Bus<'a>`] / [`BusDevice<'a>`] | `Copy`, no `Drop`, cannot unregister a bus or free a device |
 //!
 //! Conversion from raw pointers is `unsafe` and explicit; there is no blanket
@@ -71,6 +72,7 @@ pub mod cache;
 pub mod eal;
 pub mod error;
 pub mod ethdev;
+pub mod lcore;
 pub mod mbuf;
 pub mod mempool;
 pub mod object;
@@ -81,11 +83,16 @@ mod tests;
 pub use bus::{Bus, BusDevice, IovaMode};
 pub use cache::{Cache, CacheRef};
 pub use eal::{Eal, ThreadGuard, register_current_thread};
-pub use error::{BusError, EalError, MbufError, MempoolError, PortError, Result, ThreadError, TimestampError};
+pub use error::{
+    BusError, EalError, LcoreError, MbufError, MempoolError, PortError, Result, ThreadError, TimestampError,
+};
 pub use ethdev::{
     EtherAddr, LinkStatus, Port, PortConfig, PortId, PortInfo, PortStats, QueueId, QueueStats, RssConfig, RssHash,
-    RxQueue, RxQueueConfig, rx_offloads,
+    RxQueue, RxQueueConfig, TxQueue, TxQueueConfig, rx_offloads,
 };
-pub use mbuf::{DEFAULT_DATA_ROOM_SIZE, Mbuf, MbufSegments, RxTimestamp};
+pub use lcore::{LcoreExit, LcoreId, LcoreScope};
+pub use mbuf::{
+    DEFAULT_DATA_ROOM_SIZE, MAX_PACKET_SIZE, Mbuf, MbufSegments, PACKET_HEADROOM, RxTimestamp,
+};
 pub use mempool::{Builder, MEMPOOL_NAMESIZE, MemoryPool, MemoryPoolFlags, MemoryPoolRef, PoolInfo};
 pub use object::{PoolElement, PoolObject};

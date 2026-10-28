@@ -4,7 +4,7 @@ use core::ffi::{c_char, c_int, c_void};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use std::any::Any;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 
 use crate::ffi;
 
@@ -166,6 +166,66 @@ impl Eal {
     }
 }
 
+/// Hypervisor reported by `rte_hypervisor_get()`.
+///
+/// `rte_hypervisor.h` lives in `librte_eal`, so the wrapper lives in this
+/// module. The value is obtained without initialising the EAL.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hypervisor {
+    None,
+    Kvm,
+    HyperV,
+    VMware,
+    Unknown,
+}
+
+impl Hypervisor {
+    /// Raw `enum rte_hypervisor` value.
+    #[inline]
+    pub fn as_raw(self) -> ffi::rte_hypervisor::Type {
+        self as ffi::rte_hypervisor::Type
+    }
+
+    /// Human readable name reported by DPDK.
+    pub fn name(self) -> &'static str {
+        // SAFETY: DPDK returns either NULL or a NUL terminated static string.
+        let name = unsafe { ffi::rte_hypervisor_get_name(self.as_raw()) };
+
+        if name.is_null() {
+            "unknown"
+        } else {
+            // SAFETY: see above.
+            unsafe { CStr::from_ptr(name) }.to_str().unwrap_or("unknown")
+        }
+    }
+
+    /// Whether this is Microsoft Hyper-V (including WSL2).
+    #[inline]
+    pub fn is_hyperv(self) -> bool {
+        self == Self::HyperV
+    }
+
+    fn from_raw(raw: ffi::rte_hypervisor::Type) -> Self {
+        match raw {
+            ffi::rte_hypervisor::RTE_HYPERVISOR_NONE => Self::None,
+            ffi::rte_hypervisor::RTE_HYPERVISOR_KVM => Self::Kvm,
+            ffi::rte_hypervisor::RTE_HYPERVISOR_HYPERV => Self::HyperV,
+            ffi::rte_hypervisor::RTE_HYPERVISOR_VMWARE => Self::VMware,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// Hypervisor this process is running on.
+///
+/// Mirrors `rte_hypervisor_get()`. It does not require [`Eal::init`].
+#[inline]
+pub fn hypervisor() -> Hypervisor {
+    // SAFETY: `rte_hypervisor_get()` only performs host CPUID detection.
+    unsafe { Hypervisor::from_raw(ffi::rte_hypervisor_get()) }
+}
+
 /// Register the calling pthread as an EAL non-EAL lcore.
 ///
 /// This is the free-function form of [`Eal::register_current_thread`], usable
@@ -213,5 +273,45 @@ impl Drop for ThreadGuard {
 impl Drop for Eal {
     fn drop(&mut self) {
         unsafe { ffi::rte_eal_cleanup() };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hypervisor_raw_mapping_round_trips() {
+        let cases = [
+            (ffi::rte_hypervisor::RTE_HYPERVISOR_NONE, Hypervisor::None),
+            (ffi::rte_hypervisor::RTE_HYPERVISOR_KVM, Hypervisor::Kvm),
+            (ffi::rte_hypervisor::RTE_HYPERVISOR_HYPERV, Hypervisor::HyperV),
+            (ffi::rte_hypervisor::RTE_HYPERVISOR_VMWARE, Hypervisor::VMware),
+            (ffi::rte_hypervisor::RTE_HYPERVISOR_UNKNOWN, Hypervisor::Unknown),
+        ];
+
+        for (raw, expected) in cases {
+            assert_eq!(Hypervisor::from_raw(raw), expected);
+            assert_eq!(expected.as_raw(), raw);
+        }
+    }
+
+    #[test]
+    fn hypervisor_names_are_non_empty() {
+        for hypervisor in [
+            Hypervisor::None,
+            Hypervisor::Kvm,
+            Hypervisor::HyperV,
+            Hypervisor::VMware,
+            Hypervisor::Unknown,
+        ] {
+            assert!(!hypervisor.name().is_empty());
+        }
+    }
+
+    #[test]
+    fn hyperv_helper_matches_variant() {
+        assert!(Hypervisor::HyperV.is_hyperv());
+        assert!(!Hypervisor::Kvm.is_hyperv());
     }
 }

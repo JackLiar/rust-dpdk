@@ -82,7 +82,7 @@ mod tests;
 
 pub use bus::{Bus, BusDevice, IovaMode};
 pub use cache::{Cache, CacheRef};
-pub use eal::{Eal, ThreadGuard, register_current_thread};
+pub use eal::{Eal, Hypervisor, ThreadGuard, hypervisor, register_current_thread};
 pub use error::{
     BusError, EalError, LcoreError, MbufError, MempoolError, PortError, Result, ThreadError, TimestampError,
 };

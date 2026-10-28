@@ -22,6 +22,7 @@ fn generate_rte_header(fpath: &Path) -> Result<()> {
     file.write_all(b"#include <rte_common.h>\n")?;
     file.write_all(b"#include <rte_eal.h>\n")?;
     file.write_all(b"#include <rte_errno.h>\n")?;
+    file.write_all(b"#include <rte_hypervisor.h>\n")?;
     file.write_all(b"#include <rte_lcore.h>\n")?;
     file.write_all(b"#include <rte_malloc.h>\n")?;
     file.write_all(b"#include <rte_mempool.h>\n")?;

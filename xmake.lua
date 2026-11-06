@@ -1,113 +1,128 @@
 add_repositories("localrepo deps")
 add_rules("plugin.compile_commands.autoupdate")
-set_policy("package.requires_lock", true)
+-- set_policy("package.requires_lock", true)
 
 -- if build on windows, all packages needs to be shared library
 if is_os("windows") then
 else
-    -- add_requires("libpcap", {system = false, configs= {shared = true}})
-    -- add_requires("numactl", {system = false, configs = {shared = true}})
-    -- add_requires("openssl", {system = false, configs = {shared = true}})
-    add_requires("dpdk 20.11.10", {system = false, configs = {["net/pcap"] = true}})
-    add_requires("dpdk-kmods", {system = false})
+    add_requires("dpdk 20.11.10", {system = false, configs = {["net/pcap"] = true, numa = true, shared = true, disable_drivers = "common/octeontx,common/octeontx2"}})
 end
 
 target("rust-dpdk")
     set_kind("phony")
-    -- add_packages("libpcap")
-    -- add_packages("numactl")
-    -- add_packages("openssl")
-    add_packages("dpdk", "dpdk-kmods")
+    add_packages("dpdk")
 
     after_build(function(target)
-        local function add_to_table(paths, var)
-            if type(var) == "table" then
-                for _, path in ipairs(var) do
-                    table.insert(paths, path)
+        local function add_unique(list, seen, value)
+            if type(value) == "table" then
+                for _, item in ipairs(value) do
+                    add_unique(list, seen, item)
                 end
-            else
-                table.insert(paths, var)
+            elseif value and value ~= "" and not seen[value] then
+                seen[value] = true
+                table.insert(list, value)
             end
         end
 
-        local function merge_envs(target, envs)
-            for k, v in pairs(envs) do
-                add_to_table(target, v)
+        local pkg_config_dirs, include_dirs, link_dirs = {}, {}, {}
+        local pkg_config_seen, include_seen, link_seen = {}, {}, {}
+
+        for _, pkg in ipairs(target:orderpkgs()) do
+            add_unique(link_dirs, link_seen, pkg:get("linkdirs"))
+            add_unique(include_dirs, include_seen, pkg:get("sysincludedirs"))
+            for _, dir in ipairs(table.wrap(pkg:get("linkdirs"))) do
+                add_unique(pkg_config_dirs, pkg_config_seen, path.join(dir, "pkgconfig"))
             end
-            return target
         end
 
-        local pkg_config_dirs = {}
-        local include_dirs = {}
-        local link_dirs = {}
+        -- Cargo's [env] section cannot expand $VAR, so prepend the xmake dirs to
+        -- the values captured when xmake runs.
+        local function env_value(dirs, name)
+            local values, seen = {}, {}
+            local function add(value)
+                if value and value ~= "" and not seen[value] then
+                    seen[value] = true
+                    table.insert(values, value)
+                end
+            end
+            for _, dir in ipairs(dirs) do
+                add(dir)
+            end
+            local oldvalue = os.getenv(name)
+            if oldvalue and oldvalue ~= "" then
+                for _, value in ipairs(path.splitenv(oldvalue)) do
+                    add(value)
+                end
+            end
+            if #values == 0 then
+                return nil
+            end
+            return path.joinenv(values)
+        end
+
         local envs = {}
-
-        -- kernel module built by the dpdk-kmods package, installed under the package
-        -- directory with the kernel's own layout:
-        --   <pkgdir>/lib/modules/$(uname -r)/updates/igb_uio.ko
-        local kver = os.iorunv("uname", {"-r"}):trim()
-        local kmods_root
-        local igb_uio_ko
-
-        for _, pkg in pairs(target:pkgs()) do
-            add_to_table(link_dirs, pkg:get("linkdirs"), pkg:name())
-            add_to_table(include_dirs, pkg:get("sysincludedirs"), pkg:name())
-            for _, dir in ipairs(pkg:get("linkdirs")) do
-                table.append(pkg_config_dirs, path.join(dir, "pkgconfig"))
-            end
-            merge_envs(envs, pkg:get("envs"))
-            if pkg:name() == "dpdk-kmods" then
-                kmods_root = pkg:installdir()
-                -- the kernel installs modules with the compression configured by
-                -- CONFIG_MODULE_COMPRESS_*, so look the real file name up
-                local updir = path.join(kmods_root, "lib", "modules", kver, "updates")
-                for _, name in ipairs({"igb_uio.ko", "igb_uio.ko.xz", "igb_uio.ko.gz", "igb_uio.ko.zst"}) do
-                    if os.isfile(path.join(updir, name)) then
-                        igb_uio_ko = path.join(updir, name)
-                        break
-                    end
-                end
+        local function set_env(name, dirs)
+            local value = env_value(dirs, name)
+            if value then
+                envs[name] = value
             end
         end
+
         if os.is_host("windows") then
-            function gen_powershell_env()
-                local ps_env = io.open("env.ps1", "w")
-                ps_env:write("# Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass\n")
-                ps_env:write("$env:LIB=\"" .. table.concat(link_dirs, ";") .. ";$env:LIB\"\n")
-                local paths = { "C:\\Windows\\System32\\Npcap\\" }
-                ps_env:write("$env:PATH=\"" .. table.concat(paths, ";") .. ";$env:PATH\"\n")
-                ps_env:close()
-
-                local ps_run = io.open("run.ps1", "w")
-                ps_run:write("# Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass\n")
-                local paths = { "C:\\Windows\\System32\\Npcap\\", "$env:PSScriptRoot" }
-                ps_run:write("$env:PATH=\"" .. table.concat(paths, ";") .. ";$env:PATH\"\n")
-                ps_run:close()
+            set_env("LIB", link_dirs)
+            local envsep = path.envsep()
+            local npcap_dir = "C:\\Windows\\System32\\Npcap"
+            local oldpath = os.getenv("PATH")
+            if oldpath and oldpath ~= "" then
+                envs["PATH"] = npcap_dir .. envsep .. oldpath
+            else
+                envs["PATH"] = npcap_dir
             end
-            gen_powershell_env()
         else
-            function gen_bash_env()
-                local bash_env = io.open("env.sh", "w")
-                bash_env:write("#!/bin/bash\n")
-                bash_env:write("export PKG_CONFIG_PATH=\"" .. table.concat(pkg_config_dirs, ":") .. ":$PKG_CONFIG_PATH\"\n")
-                bash_env:write("export C_INCLUDE_PATH=\"" .. table.concat(include_dirs, ":") .. ":$C_INCLUDE_PATH\"\n")
-                bash_env:write("export CPLUS_INCLUDE_PATH=\"" .. table.concat(include_dirs, ":") .. ":$CPLUS_INCLUDE_PATH\"\n")
-                bash_env:write("export LIBRARY_PATH=\"" .. table.concat(link_dirs, ":") .. ":$LIBRARY_PATH\"\n")
-                bash_env:write("export LD_LIBRARY_PATH=\"" .. table.concat(link_dirs, ":") .. ":$LD_LIBRARY_PATH\"\n")
-                bash_env:write("export DPDK_KMODS_ROOT=\"" .. (kmods_root or "") .. "\"\n")
-                bash_env:write("export DPDK_IGB_UIO_KO=\"" .. (igb_uio_ko or "") .. "\"\n")
-                bash_env:close()
-            end
-            gen_bash_env()
-            function gen_fish_env()
-                local fish_env = io.open("env.fish", "w")
-                fish_env:write("set -x PKG_CONFIG_PATH " .. table.concat(pkg_config_dirs, " ") .. " $PKG_CONFIG_PATH\n")
-                fish_env:write("set -x C_INCLUDE_PATH " .. table.concat(include_dirs, " ") .. " $C_INCLUDE_PATH\n")
-                fish_env:write("set -x CPLUS_INCLUDE_PATH " .. table.concat(include_dirs, " ") .. " $CPLUS_INCLUDE_PATH\n")
-                fish_env:write("set -x LIBRARY_PATH " .. table.concat(link_dirs, " ") .. " $LIBRARY_PATH\n")
-                fish_env:write("set -x LD_LIBRARY_PATH " .. table.concat(link_dirs, " ") .. " $LD_LIBRARY_PATH\n")
-                fish_env:close()
-            end
-            gen_fish_env()
+            set_env("PKG_CONFIG_PATH", pkg_config_dirs)
+            set_env("C_INCLUDE_PATH", include_dirs)
+            set_env("CPLUS_INCLUDE_PATH", include_dirs)
+            set_env("LIBRARY_PATH", link_dirs)
+            set_env("LD_LIBRARY_PATH", link_dirs)
         end
+
+        local function toml_quote(value)
+            value = value:gsub("\\", "\\\\")
+            value = value:gsub("\"", "\\\"")
+            value = value:gsub("\r", "\\r")
+            value = value:gsub("\n", "\\n")
+            return "\"" .. value .. "\""
+        end
+
+        local env_file = path.join(os.projectdir(), ".cargo", "env.toml")
+        local env_dir = path.directory(env_file)
+        if not os.isdir(env_dir) then
+            os.mkdir(env_dir)
+        end
+
+        local file = assert(io.open(env_file, "w"))
+        file:write("# Generated by xmake. Do not edit; rerun xmake after changing packages/options.\n")
+        file:write("\n[env]\n")
+        for _, name in ipairs({
+            "PKG_CONFIG_PATH",
+            "C_INCLUDE_PATH",
+            "CPLUS_INCLUDE_PATH",
+            "LIBRARY_PATH",
+            "LD_LIBRARY_PATH",
+            "LIB",
+            "PATH",
+        }) do
+            local value = envs[name]
+            if value then
+                file:write(name .. " = { value = " .. toml_quote(value) .. ", force = true }\n")
+            end
+        end
+
+        -- Cargo overwrites LD_LIBRARY_PATH when it runs `cargo run` / `cargo test`,
+        -- so use a runner to put the xmake package dirs back for Linux executables.
+        if os.is_host("linux") and envs["LD_LIBRARY_PATH"] then
+            file:write("\n[target.'cfg(target_os = \"linux\")']\n")
+            file:write("runner = [\"env\", " .. toml_quote("LD_LIBRARY_PATH=" .. envs["LD_LIBRARY_PATH"]) .. "]\n")
+        end
+        file:close()
     end)

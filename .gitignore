@@ -5,3 +5,4 @@ build
 env.sh
 env.fish
 compile_commands.json
+.cargo/env.toml

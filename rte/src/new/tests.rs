@@ -322,6 +322,211 @@ fn end_to_end() {
     drop(too_many);
     drop(small);
 
+    // ------------------------------------------------------------------- rings
+
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    assert_send_sync::<Ring<'static>>();
+    assert_send_sync::<RingRef<'static>>();
+
+    let mut ring = Ring::create::<u64>(&eal, "new_test_ring", 64, RingFlags::empty()).expect("create ring");
+
+    assert_eq!(ring.element_size(), core::mem::size_of::<u64>());
+    assert_eq!(ring.info().name, "new_test_ring");
+    assert_eq!(ring.size(), 64);
+    assert_eq!(ring.capacity(), 63);
+    assert_eq!(ring.count(), 0);
+    assert_eq!(ring.free_count(), 63);
+    assert!(ring.is_empty());
+    assert!(!ring.is_full());
+    assert!(!ring.prod_single());
+    assert!(!ring.cons_single());
+    assert_eq!(ring.flags(), RingFlags::empty());
+    assert_eq!(ring.info().element_size, core::mem::size_of::<u64>());
+
+    // Borrowed views are `Copy` and can never free the ring.
+    {
+        let view = ring.as_ref();
+        let view2 = view;
+
+        assert_eq!(view2.capacity(), 63);
+        assert_eq!(view2.element_size(), core::mem::size_of::<u64>());
+        assert_eq!(view2.info().name, "new_test_ring");
+    }
+
+    // Single-element enqueue/dequeue is FIFO.
+    ring.enqueue(1u64).expect("enqueue 1");
+    ring.enqueue(2u64).expect("enqueue 2");
+    assert_eq!(ring.count(), 2);
+    assert_eq!(ring.dequeue::<u64>().expect("dequeue 1"), 1);
+    assert_eq!(ring.dequeue::<u64>().expect("dequeue 2"), 2);
+    assert!(matches!(ring.dequeue::<u64>(), Err(RingError::Empty { .. })));
+
+    // The typed element size is checked before touching DPDK.
+    assert!(matches!(
+        ring.enqueue_burst(&[0u32; 4]),
+        Err(RingError::ElementSizeMismatch { expected: 8, actual: 4 })
+    ));
+    assert!(matches!(
+        ring.dequeue_burst(&mut [0u32; 4]),
+        Err(RingError::ElementSizeMismatch { expected: 8, actual: 4 })
+    ));
+
+    // Empty slices are no-ops.
+    assert_eq!(ring.enqueue_burst::<u64>(&[]).expect("empty burst"), 0);
+    let mut no_out: [u64; 0] = [];
+    assert_eq!(ring.dequeue_burst(&mut no_out).expect("empty dequeue burst"), 0);
+    ring.enqueue_bulk::<u64>(&[]).expect("empty bulk");
+    ring.dequeue_bulk::<u64>(&mut []).expect("empty dequeue bulk");
+
+    // Fixed-size bulk operations report Full/Empty, burst operations report counts.
+    let values: Vec<u64> = (0..63).collect();
+    ring.enqueue_bulk(&values).expect("fill ring");
+    assert!(ring.is_full());
+    assert_eq!(ring.count(), 63);
+    assert!(matches!(ring.enqueue_bulk(&[99u64]), Err(RingError::Full { .. })));
+    assert!(matches!(ring.enqueue(99u64), Err(RingError::Full { .. })));
+
+    let mut bulk_out = vec![0u64; 63];
+    ring.dequeue_bulk(&mut bulk_out).expect("drain ring");
+    assert_eq!(bulk_out, values);
+    assert!(ring.is_empty());
+    assert!(matches!(
+        ring.dequeue_bulk(&mut [0u64; 1]),
+        Err(RingError::Empty { .. })
+    ));
+
+    let burst: Vec<u64> = (0..100).collect();
+    assert_eq!(ring.enqueue_burst(&burst).expect("burst enqueue"), 63);
+    assert_eq!(ring.enqueue_burst(&burst).expect("full burst enqueue"), 0);
+
+    let mut burst_out = vec![0u64; 100];
+    assert_eq!(ring.dequeue_burst(&mut burst_out).expect("burst dequeue"), 63);
+    assert_eq!(&burst_out[..63], &burst[..63]);
+    assert_eq!(ring.dequeue_burst(&mut burst_out).expect("empty burst dequeue"), 0);
+
+    // `clear()` flushes the ring.
+    ring.enqueue_burst(&burst[..10]).expect("enqueue before clear");
+    assert_eq!(ring.count(), 10);
+    ring.clear();
+    assert_eq!(ring.count(), 0);
+
+    // `dump()` writes through the supplied file descriptor.
+    {
+        let (reader, writer) = std::io::pipe().expect("create pipe");
+        ring.dump(&writer).expect("dump ring");
+        std::mem::forget(writer);
+
+        let mut dumped = String::new();
+        std::io::BufReader::new(reader)
+            .read_to_string(&mut dumped)
+            .expect("read ring dump");
+        assert!(!dumped.is_empty(), "ring dump should not be empty");
+    }
+
+    assert!(format!("{ring:?}").contains("new_test_ring"));
+
+    // Lookup while the owned ring is alive, including a missing name.
+    {
+        let looked_up = unsafe { eal.ring("new_test_ring", core::mem::size_of::<u64>()) }.expect("lookup ring");
+
+        assert_eq!(looked_up.capacity(), 63);
+        assert_eq!(looked_up.element_size(), core::mem::size_of::<u64>());
+        assert_eq!(looked_up.info().name, "new_test_ring");
+    }
+    assert!(matches!(
+        unsafe { eal.ring("new_test_ring_missing", 8) },
+        Err(RingError::NotFound { .. })
+    ));
+
+    // `EXACT_SZ` makes the requested capacity usable.
+    let exact = Ring::create::<u64>(&eal, "new_test_ring_exact", 64, RingFlags::EXACT_SZ).expect("create exact ring");
+    assert_eq!(exact.capacity(), 64);
+    assert!(exact.size() >= 64);
+    drop(exact);
+
+    // Pointer rings use the same element API.
+    {
+        let pointer_ring =
+            Ring::create::<*mut u8>(&eal, "new_test_ring_ptr", 8, RingFlags::empty()).expect("create pointer ring");
+        let pointer = 0x1234 as *mut u8;
+
+        assert_eq!(pointer_ring.element_size(), core::mem::size_of::<*mut u8>());
+        pointer_ring.enqueue(pointer).expect("enqueue pointer");
+        assert_eq!(pointer_ring.dequeue::<*mut u8>().expect("dequeue pointer"), pointer);
+    }
+
+    // SP/SC operations are available behind `unsafe`.
+    let sp_ring = Ring::create::<u64>(&eal, "new_test_ring_sp", 16, RingFlags::SP_ENQ | RingFlags::SC_DEQ)
+        .expect("create SP/SC ring");
+
+    assert!(sp_ring.prod_single());
+    assert!(sp_ring.cons_single());
+    assert_eq!(sp_ring.capacity(), 15);
+
+    unsafe {
+        sp_ring.sp_enqueue(7u64).expect("sp enqueue");
+        sp_ring.sp_enqueue_bulk(&[8u64, 9u64]).expect("sp bulk");
+        assert_eq!(sp_ring.sp_enqueue_burst(&[10u64, 11u64]).expect("sp burst"), 2);
+
+        let mut sp_out = [0u64; 5];
+        assert_eq!(sp_ring.sc_dequeue_burst(&mut sp_out).expect("sc burst"), 5);
+        assert_eq!(sp_out, [7, 8, 9, 10, 11]);
+
+        assert!(matches!(
+            sp_ring.sc_dequeue_bulk(&mut [0u64; 1]),
+            Err(RingError::Empty { .. })
+        ));
+        assert!(matches!(sp_ring.sc_dequeue::<u64>(), Err(RingError::Empty { .. })));
+
+        sp_ring.sp_enqueue(12u64).expect("sp enqueue again");
+        assert_eq!(sp_ring.sc_dequeue::<u64>().expect("sc dequeue"), 12);
+    }
+
+    // Safe MP/MC operations also work on a ring created with SP/SC flags.
+    sp_ring.enqueue(13u64).expect("mp enqueue on SP ring");
+    assert_eq!(sp_ring.dequeue::<u64>().expect("mc dequeue on SC ring"), 13);
+
+    // Creation and sizing errors are typed.
+    let long_name = "x".repeat(RING_NAMESIZE + 1);
+    assert!(matches!(
+        Ring::create::<u64>(&eal, &long_name, 16, RingFlags::empty()),
+        Err(RingError::InvalidName { .. })
+    ));
+    assert!(matches!(
+        Ring::create_elem(&eal, "new_test_ring_bad_size", 6, 16, RingFlags::empty()),
+        Err(RingError::InvalidElementSize { .. })
+    ));
+    assert!(matches!(
+        Ring::create::<u64>(&eal, "new_test_ring_bad_cap", 7, RingFlags::empty()),
+        Err(RingError::InvalidCapacity { .. })
+    ));
+    assert!(matches!(
+        Ring::create::<u64>(&eal, "new_test_ring_bad_flag", 16, RingFlags::MP_RTS_ENQ),
+        Err(RingError::UnsupportedFlags { .. })
+    ));
+
+    assert!(Ring::mem_size::<u64>(64).expect("ring memsize") > 0);
+    assert_eq!(
+        Ring::mem_size_elem(8, 64).expect("ring memsize elem"),
+        Ring::mem_size::<u64>(64).expect("ring memsize")
+    );
+    assert!(matches!(
+        Ring::mem_size_elem(6, 64),
+        Err(RingError::InvalidElementSize { .. })
+    ));
+    assert!(matches!(
+        Ring::mem_size_elem(8, 0),
+        Err(RingError::InvalidCapacity { .. })
+    ));
+
+    drop(ring);
+    assert!(matches!(
+        unsafe { eal.ring("new_test_ring", 8) },
+        Err(RingError::NotFound { .. })
+    ));
+    drop(sp_ring);
+
     let port = Port::open(0).expect("open port 0");
     assert_eq!(port.id(), 0);
 

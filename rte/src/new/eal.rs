@@ -8,8 +8,9 @@ use std::ffi::{CStr, CString};
 
 use crate::ffi;
 
-use super::error::{EalError, MempoolError, ThreadError, rte_errno};
+use super::error::{EalError, MempoolError, ThreadError, rte_errno, RingError};
 use super::mempool::MemoryPoolRef;
+use super::ring::RingRef;
 
 /// Owns the DPDK Environment Abstraction Layer for as long as it is alive.
 ///
@@ -101,6 +102,22 @@ impl Eal {
     /// [`MemoryPool`](super::MemoryPool) when this process created the pool.
     pub unsafe fn pool(&self, name: &str) -> Result<MemoryPoolRef<'_>, MempoolError> {
         unsafe { MemoryPoolRef::lookup(name) }
+    }
+
+    /// Look up an existing ring by name.
+    ///
+    /// The result is a **borrowed** view: it can never free the ring. Because
+    /// DPDK does not store the ring's element size, the caller must supply the
+    /// size that was used when the ring was created.
+    ///
+    /// # Safety
+    ///
+    /// A name lookup only proves the ring exists *right now*. The caller must
+    /// guarantee that no thread in any process frees the ring while the
+    /// returned view is alive. Prefer an owned [`Ring`](super::Ring) when this
+    /// process created the ring.
+    pub unsafe fn ring(&self, name: &str, element_size: usize) -> Result<RingRef<'_>, RingError> {
+        unsafe { RingRef::lookup(name, element_size) }
     }
 
     /// Visit every mempool currently registered in this process.

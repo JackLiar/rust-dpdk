@@ -378,3 +378,87 @@ uint16_t _rte_eth_tx_buffer(uint16_t port_id, uint16_t queue_id,
 int _rte_vlan_strip(struct rte_mbuf *m) { return rte_vlan_strip(m); }
 
 int _rte_vlan_insert(struct rte_mbuf **m) { return rte_vlan_insert(m); }
+
+unsigned int _rte_ring_mp_enqueue_bulk_elem(struct rte_ring *r,
+                                            const void *obj_table,
+                                            unsigned int esize, unsigned int n,
+                                            unsigned int *free_space) {
+  return rte_ring_mp_enqueue_bulk_elem(r, obj_table, esize, n, free_space);
+}
+
+unsigned int _rte_ring_sp_enqueue_bulk_elem(struct rte_ring *r,
+                                            const void *obj_table,
+                                            unsigned int esize, unsigned int n,
+                                            unsigned int *free_space) {
+  return rte_ring_sp_enqueue_bulk_elem(r, obj_table, esize, n, free_space);
+}
+
+unsigned int _rte_ring_mp_enqueue_burst_elem(struct rte_ring *r,
+                                             const void *obj_table,
+                                             unsigned int esize, unsigned int n,
+                                             unsigned int *free_space) {
+  return rte_ring_mp_enqueue_burst_elem(r, obj_table, esize, n, free_space);
+}
+
+unsigned int _rte_ring_sp_enqueue_burst_elem(struct rte_ring *r,
+                                             const void *obj_table,
+                                             unsigned int esize, unsigned int n,
+                                             unsigned int *free_space) {
+  return rte_ring_sp_enqueue_burst_elem(r, obj_table, esize, n, free_space);
+}
+
+unsigned int _rte_ring_mc_dequeue_bulk_elem(struct rte_ring *r,
+                                            void *obj_table,
+                                            unsigned int esize, unsigned int n,
+                                            unsigned int *available) {
+  return rte_ring_mc_dequeue_bulk_elem(r, obj_table, esize, n, available);
+}
+
+unsigned int _rte_ring_sc_dequeue_bulk_elem(struct rte_ring *r,
+                                            void *obj_table,
+                                            unsigned int esize, unsigned int n,
+                                            unsigned int *available) {
+  return rte_ring_sc_dequeue_bulk_elem(r, obj_table, esize, n, available);
+}
+
+unsigned int _rte_ring_mc_dequeue_burst_elem(struct rte_ring *r,
+                                             void *obj_table,
+                                             unsigned int esize, unsigned int n,
+                                             unsigned int *available) {
+  return rte_ring_mc_dequeue_burst_elem(r, obj_table, esize, n, available);
+}
+
+unsigned int _rte_ring_sc_dequeue_burst_elem(struct rte_ring *r,
+                                             void *obj_table,
+                                             unsigned int esize, unsigned int n,
+                                             unsigned int *available) {
+  return rte_ring_sc_dequeue_burst_elem(r, obj_table, esize, n, available);
+}
+
+unsigned int _rte_ring_count(const struct rte_ring *r) {
+  return rte_ring_count(r);
+}
+
+unsigned int _rte_ring_free_count(const struct rte_ring *r) {
+  return rte_ring_free_count(r);
+}
+
+int _rte_ring_full(const struct rte_ring *r) { return rte_ring_full(r); }
+
+int _rte_ring_empty(const struct rte_ring *r) { return rte_ring_empty(r); }
+
+unsigned int _rte_ring_get_size(const struct rte_ring *r) {
+  return rte_ring_get_size(r);
+}
+
+unsigned int _rte_ring_get_capacity(const struct rte_ring *r) {
+  return rte_ring_get_capacity(r);
+}
+
+int _rte_ring_is_prod_single(const struct rte_ring *r) {
+  return rte_ring_is_prod_single(r);
+}
+
+int _rte_ring_is_cons_single(const struct rte_ring *r) {
+  return rte_ring_is_cons_single(r);
+}

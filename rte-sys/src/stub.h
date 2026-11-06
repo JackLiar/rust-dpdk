@@ -2,6 +2,7 @@
 
 #include "rte_bitmap.h"
 #include "rte_ethdev.h"
+#include "rte_ring.h"
 
 /**
  * Seed the pseudo-random generator.
@@ -1619,3 +1620,53 @@ int _rte_vlan_strip(struct rte_mbuf *m);
  *   -ENOSPC: not enough headroom in mbuf
  */
 int _rte_vlan_insert(struct rte_mbuf **m);
+
+/*
+ * Ring inline-function stubs.
+ *
+ * The enqueue/dequeue entry points below are `static __rte_always_inline` in
+ * rte_ring_elem.h, so bindgen cannot emit them. These wrappers expose them as
+ * ordinary symbols under the crate's `_rte_*` naming convention.
+ */
+unsigned int _rte_ring_mp_enqueue_bulk_elem(struct rte_ring *r,
+                                            const void *obj_table,
+                                            unsigned int esize, unsigned int n,
+                                            unsigned int *free_space);
+unsigned int _rte_ring_sp_enqueue_bulk_elem(struct rte_ring *r,
+                                            const void *obj_table,
+                                            unsigned int esize, unsigned int n,
+                                            unsigned int *free_space);
+unsigned int _rte_ring_mp_enqueue_burst_elem(struct rte_ring *r,
+                                             const void *obj_table,
+                                             unsigned int esize, unsigned int n,
+                                             unsigned int *free_space);
+unsigned int _rte_ring_sp_enqueue_burst_elem(struct rte_ring *r,
+                                             const void *obj_table,
+                                             unsigned int esize, unsigned int n,
+                                             unsigned int *free_space);
+
+unsigned int _rte_ring_mc_dequeue_bulk_elem(struct rte_ring *r,
+                                            void *obj_table,
+                                            unsigned int esize, unsigned int n,
+                                            unsigned int *available);
+unsigned int _rte_ring_sc_dequeue_bulk_elem(struct rte_ring *r,
+                                            void *obj_table,
+                                            unsigned int esize, unsigned int n,
+                                            unsigned int *available);
+unsigned int _rte_ring_mc_dequeue_burst_elem(struct rte_ring *r,
+                                             void *obj_table,
+                                             unsigned int esize, unsigned int n,
+                                             unsigned int *available);
+unsigned int _rte_ring_sc_dequeue_burst_elem(struct rte_ring *r,
+                                             void *obj_table,
+                                             unsigned int esize, unsigned int n,
+                                             unsigned int *available);
+
+unsigned int _rte_ring_count(const struct rte_ring *r);
+unsigned int _rte_ring_free_count(const struct rte_ring *r);
+int _rte_ring_full(const struct rte_ring *r);
+int _rte_ring_empty(const struct rte_ring *r);
+unsigned int _rte_ring_get_size(const struct rte_ring *r);
+unsigned int _rte_ring_get_capacity(const struct rte_ring *r);
+int _rte_ring_is_prod_single(const struct rte_ring *r);
+int _rte_ring_is_cons_single(const struct rte_ring *r);

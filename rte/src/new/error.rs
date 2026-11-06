@@ -325,5 +325,70 @@ pub enum BusError {
     Dump(#[from] std::io::Error),
 }
 
+/// Failure while creating, looking up or operating on a DPDK ring.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum RingError {
+    /// Another ring with the same name is already registered.
+    #[error("a ring named `{name}` already exists")]
+    AlreadyExists { name: String },
+
+    /// `rte_ring_lookup()` found nothing.
+    #[error("no ring named `{name}`")]
+    NotFound { name: String },
+
+    /// Not enough memory to back the requested ring.
+    #[error("not enough memory for ring `{name}` ({capacity} objects of {elt_size} bytes)")]
+    NoMemory {
+        name: String,
+        capacity: u32,
+        elt_size: usize,
+    },
+
+    /// The name is empty, too long, or contains an interior NUL.
+    #[error("invalid ring name `{name}`: {len} bytes, at most {max} are allowed")]
+    InvalidName { name: String, len: usize, max: usize },
+
+    /// DPDK requires the element size to be a non-zero multiple of four.
+    #[error("invalid ring element size {size}: it must be a non-zero multiple of 4")]
+    InvalidElementSize { size: usize },
+
+    /// DPDK rejected the requested ring capacity.
+    #[error("invalid ring capacity {count}")]
+    InvalidCapacity { count: u32 },
+
+    /// The ring was created with a synchronization mode this wrapper does not support.
+    #[error("unsupported ring flags {flags:#x}")]
+    UnsupportedFlags { flags: u32 },
+
+    /// A typed operation was used with a ring of a different element size.
+    #[error("ring element size mismatch: expected {expected}, got {actual}")]
+    ElementSizeMismatch { expected: usize, actual: usize },
+
+    /// A fixed-size enqueue found no free space.
+    #[error("ring `{name}` is full")]
+    Full { name: String },
+
+    /// A fixed-size dequeue found no entry.
+    #[error("ring `{name}` is empty")]
+    Empty { name: String },
+
+    /// Anything else that came back through `rte_errno`.
+    #[error("DPDK error {errno}: {message}")]
+    Rte { errno: i32, message: String },
+}
+
+impl RingError {
+    /// Capture the current `rte_errno`.
+    pub(crate) fn from_rte_errno() -> Self {
+        let errno = rte_errno();
+
+        Self::Rte {
+            errno,
+            message: rte_strerror(errno),
+        }
+    }
+}
+
 /// Convenience alias used throughout `rte::new`.
 pub type Result<T, E = MempoolError> = core::result::Result<T, E>;

@@ -232,6 +232,8 @@ fn generate_link_args(libdpdk: &Library) -> Result<()> {
 fn main() -> Result<()> {
     pretty_env_logger::init();
     cargo_emit::rerun_if_env_changed!("PKG_CONFIG_PATH");
+    cargo_emit::rerun_if_changed!("src/stub.h");
+    cargo_emit::rerun_if_changed!("src/stub.c");
     let libdpdk = pkg_config::Config::new()
         .cargo_metadata(false)
         .env_metadata(false)

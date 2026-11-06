@@ -26,6 +26,8 @@
 //! | EAL lifetime | [`Eal`] | nothing DPDK-allocated outlives `rte_eal_cleanup()` |
 //! | pool ownership | [`MemoryPool<'eal>`] | owned, `Drop` calls `rte_mempool_free` |
 //! | pool borrow | [`MemoryPoolRef<'a>`] | `Copy`, no `Drop`, cannot free |
+//! | ring ownership | [`Ring<'eal>`] | owned, `Drop` calls `rte_ring_free` |
+//! | ring borrow | [`RingRef<'a>`] | `Copy`, no `Drop`, cannot free |
 //! | object ownership | [`PoolObject<'pool, T>`] | `Drop` returns the object to its pool |
 //! | port ownership | [`Port`] | `Drop` stops and closes the port |
 //! | queue borrow | [`RxQueue<'port, 'pool>`] / [`TxQueue<'port>`] | borrows the port; RX also borrows its pool |
@@ -60,12 +62,26 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
+//! Rings follow the same ownership split:
+//!
+//! ```no_run
+//! use rte::new::{Eal, Ring, RingFlags};
+//! let eal = Eal::init(&["app", "-l", "0", "-n", "2"])?;
+//! let ring = Ring::create::<u64>(&eal, "events", 1024, RingFlags::empty())?;
+//! ring.enqueue(42u64)?;
+//! assert_eq!(ring.dequeue::<u64>()?, 42);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
 //! ## Deliberate omissions
 //!
 //! * No `Deref<Target = rte_mempool>`: the C struct layout is never exposed to
 //!   safe code. Use [`PoolInfo`] for a snapshot of the interesting fields.
 //! * No `impl From<*mut rte_mempool>`: use the `unsafe` [`MemoryPool::from_raw`]
 //!   when you really do own a raw pointer.
+//! * No `rte_ring_init`, RTS/HTS, peek/zero-copy or `rte_event_ring` wrappers:
+//!   [`Ring`] covers the non-experimental create/lookup/enqueue/dequeue/count
+//!   surface of DPDK 20.11, and a ring never owns or drops its elements.
 
 pub mod bus;
 pub mod cache;
@@ -76,6 +92,7 @@ pub mod lcore;
 pub mod mbuf;
 pub mod mempool;
 pub mod object;
+pub mod ring;
 
 #[cfg(test)]
 mod tests;
@@ -84,7 +101,7 @@ pub use bus::{Bus, BusDevice, IovaMode};
 pub use cache::{Cache, CacheRef};
 pub use eal::{Eal, Hypervisor, ThreadGuard, hypervisor, register_current_thread};
 pub use error::{
-    BusError, EalError, LcoreError, MbufError, MempoolError, PortError, Result, ThreadError, TimestampError,
+    BusError, EalError, LcoreError, MbufError, MempoolError, PortError, Result, RingError, ThreadError, TimestampError,
 };
 pub use ethdev::{
     EtherAddr, LinkStatus, Port, PortConfig, PortId, PortInfo, PortStats, QueueId, QueueStats, RssConfig, RssHash,
@@ -96,3 +113,4 @@ pub use mbuf::{
 };
 pub use mempool::{Builder, MEMPOOL_NAMESIZE, MemoryPool, MemoryPoolFlags, MemoryPoolRef, PoolInfo};
 pub use object::{PoolElement, PoolObject};
+pub use ring::{RING_NAMESIZE, Ring, RingElement, RingFlags, RingInfo, RingRef};

@@ -675,6 +675,84 @@ fn end_to_end() {
     // DPDK 20.11 only exposes 16 queue slots in `rte_eth_stats`.
     assert!(port.queue_stats(ffi::RTE_ETHDEV_QUEUE_STAT_CNTRS as u16).is_none());
 
+    // --------------------------------------------------- mbuf ownership through rings
+
+    let mbuf_ring = Ring::create_elem(&eal, "new_test_mbuf_ring", MBUF_PTR_SIZE, 64, RingFlags::empty())
+        .expect("create mbuf ring");
+    let mbuf_channel = MbufRing::new(mbuf_ring.as_ref(), mbuf_pool.as_ref()).expect("wrap mbuf ring");
+
+    fn assert_copy<T: Copy>() {}
+    assert_copy::<MbufRing<'static>>();
+    assert_send_sync::<MbufRing<'static>>();
+
+    assert_eq!(mbuf_channel.pool().as_ptr(), mbuf_pool.as_ptr());
+    assert_eq!(mbuf_channel.as_ring().element_size(), MBUF_PTR_SIZE);
+    assert_eq!(mbuf_channel.capacity(), 63);
+    assert!(mbuf_channel.is_empty());
+
+    // A checked-out mbuf crosses the ring: `enqueue` consumes it, `dequeue`
+    // rebuilds the handle against the pool carried by the channel.
+    let mut packet = mbuf_pool.alloc_mbuf().expect("alloc ring packet");
+    packet.set_data(b"hello ring").expect("fill ring packet");
+    assert_eq!(packet.pool(), mbuf_pool.as_ptr());
+    mbuf_channel.enqueue(packet).expect("enqueue packet");
+
+    let received = unsafe { mbuf_channel.dequeue() }.expect("dequeue packet");
+    assert_eq!(received.data(), b"hello ring");
+    assert_eq!(received.pool(), mbuf_pool.as_ptr());
+    drop(received);
+    assert_eq!(mbuf_pool.available(), 1024);
+
+    // A full ring returns the mbuf to its pool instead of leaking it.
+    let queued: Vec<_> = (0..mbuf_channel.capacity())
+        .map(|_| mbuf_pool.alloc_mbuf().expect("alloc queued packet"))
+        .collect();
+    for packet in queued {
+        mbuf_channel.enqueue(packet).expect("fill mbuf ring");
+    }
+    assert!(mbuf_channel.is_full());
+
+    let extra = mbuf_pool.alloc_mbuf().expect("alloc overflow packet");
+    assert!(matches!(mbuf_channel.enqueue(extra), Err(RingError::Full { .. })));
+    // The rejected buffer went back to its pool, so only the queued ones remain
+    // checked out.
+    assert_eq!(mbuf_pool.in_use(), mbuf_channel.capacity());
+
+    let mut drained = 0usize;
+    while let Ok(packet) = unsafe { mbuf_channel.dequeue() } {
+        drop(packet);
+        drained += 1;
+    }
+    assert_eq!(drained, mbuf_channel.capacity());
+    assert_eq!(mbuf_pool.in_use(), 0);
+    assert!(matches!(unsafe { mbuf_channel.dequeue() }, Err(RingError::Empty { .. })));
+
+    // A channel refuses mbufs owned by another pool, and returns them home.
+    let other_pool = MemoryPool::pktmbuf_pool(&eal, "new_test_mp_pool_other", 16, 0, 0, DEFAULT_DATA_ROOM_SIZE)
+        .expect("create other pktmbuf pool");
+    let other_ring = Ring::create_elem(&eal, "new_test_mbuf_ring_other", MBUF_PTR_SIZE, 16, RingFlags::empty())
+        .expect("create other mbuf ring");
+    let other_channel = MbufRing::new(other_ring.as_ref(), other_pool.as_ref()).expect("wrap other ring");
+
+    let foreign = mbuf_pool.alloc_mbuf().expect("alloc foreign packet");
+    assert!(matches!(
+        other_channel.enqueue(foreign),
+        Err(RingError::Mbuf(MbufError::ForeignPool { .. }))
+    ));
+    assert_eq!(mbuf_pool.in_use(), 0);
+    assert_eq!(mbuf_pool.available(), 1024);
+
+    // The channel checks the ring's element size when it is built.
+    let u32_ring =
+        Ring::create::<u32>(&eal, "new_test_mbuf_ring_u32", 8, RingFlags::empty()).expect("create u32 ring");
+    assert!(matches!(
+        MbufRing::new(u32_ring.as_ref(), mbuf_pool.as_ref()),
+        Err(RingError::ElementSizeMismatch {
+            expected: 4,
+            actual: MBUF_PTR_SIZE
+        })
+    ));
+
     // ------------------------------------------------------------------ TX queue
 
     if Port::available_count() >= 2 {

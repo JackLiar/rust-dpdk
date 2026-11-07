@@ -28,6 +28,7 @@
 //! | pool borrow | [`MemoryPoolRef<'a>`] | `Copy`, no `Drop`, cannot free |
 //! | ring ownership | [`Ring<'eal>`] | owned, `Drop` calls `rte_ring_free` |
 //! | ring borrow | [`RingRef<'a>`] | `Copy`, no `Drop`, cannot free |
+//! | mbuf ring transfer | [`MbufRing<'a>`] | consumes an [`Mbuf`] on enqueue, validates the pool on dequeue |
 //! | object ownership | [`PoolObject<'pool, T>`] | `Drop` returns the object to its pool |
 //! | port ownership | [`Port`] | `Drop` stops and closes the port |
 //! | queue borrow | [`RxQueue<'port, 'pool>`] / [`TxQueue<'port>`] | borrows the port; RX also borrows its pool |
@@ -82,6 +83,9 @@
 //! * No `rte_ring_init`, RTS/HTS, peek/zero-copy or `rte_event_ring` wrappers:
 //!   [`Ring`] covers the non-experimental create/lookup/enqueue/dequeue/count
 //!   surface of DPDK 20.11, and a ring never owns or drops its elements.
+//! * No direct `Ring::enqueue(Mbuf)`: rings copy elements and never run
+//!   destructors, so packet ownership is transferred with [`Mbuf::into_raw`]
+//!   plus [`MemoryPoolRef::mbuf_from_raw`], wrapped by the typed [`MbufRing`].
 
 pub mod bus;
 pub mod cache;
@@ -109,8 +113,8 @@ pub use ethdev::{
 };
 pub use lcore::{LcoreExit, LcoreId, LcoreScope};
 pub use mbuf::{
-    DEFAULT_DATA_ROOM_SIZE, MAX_PACKET_SIZE, Mbuf, MbufSegments, PACKET_HEADROOM, RxTimestamp,
+    DEFAULT_DATA_ROOM_SIZE, MAX_PACKET_SIZE, MBUF_PTR_SIZE, Mbuf, MbufSegments, PACKET_HEADROOM, RxTimestamp,
 };
 pub use mempool::{Builder, MEMPOOL_NAMESIZE, MemoryPool, MemoryPoolFlags, MemoryPoolRef, PoolInfo};
 pub use object::{PoolElement, PoolObject};
-pub use ring::{RING_NAMESIZE, Ring, RingElement, RingFlags, RingInfo, RingRef};
+pub use ring::{MbufRing, RING_NAMESIZE, Ring, RingElement, RingFlags, RingInfo, RingRef};

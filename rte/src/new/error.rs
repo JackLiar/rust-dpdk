@@ -92,6 +92,15 @@ pub enum MbufError {
         /// Current number of segments.
         nb_segs: u16,
     },
+
+    /// The mbuf was received from a different mempool than the one expected.
+    #[error("mbuf belongs to pool {actual:#x}, not {expected:#x}")]
+    ForeignPool {
+        /// Address of the pool the caller expected.
+        expected: usize,
+        /// Address of the pool the mbuf actually belongs to (0 for a null pointer).
+        actual: usize,
+    },
 }
 
 impl MbufError {
@@ -372,6 +381,10 @@ pub enum RingError {
     /// A fixed-size dequeue found no entry.
     #[error("ring `{name}` is empty")]
     Empty { name: String },
+
+    /// The ring carried an mbuf that does not belong to the expected pool.
+    #[error(transparent)]
+    Mbuf(#[from] MbufError),
 
     /// Anything else that came back through `rte_errno`.
     #[error("DPDK error {errno}: {message}")]

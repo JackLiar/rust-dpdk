@@ -233,3 +233,8 @@ path = "examples/ethtool/main.rs"
 name = "dpdk-replay"
 path = "examples/dpdk-replay/main.rs"
 required-features = ["eal", "mbuf", "mempool", "ethdev"]
+
+[[example]]
+name = "mp_ring"
+path = "examples/mp_ring/main.rs"
+required-features = ["eal", "mbuf", "mempool", "ring"]

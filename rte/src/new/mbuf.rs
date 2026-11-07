@@ -5,6 +5,16 @@
 //! a packet can never outlive the pool that backs it. Dropping it calls
 //! `rte_pktmbuf_free()`, which handles reference counting and multi-segment
 //! packets correctly.
+//!
+//! # Transferring a packet through a ring
+//!
+//! An owning [`Mbuf`] cannot be put into an RTE ring directly: rings store
+//! elements by value and never run destructors, so enqueueing an owning handle
+//! would duplicate it. Transfer ownership explicitly with [`Mbuf::into_raw`]
+//! plus a `*mut rte_mbuf` ring, and rebuild the handle on the receiving side
+//! from the looked-up pool — see
+//! [`MemoryPoolRef::mbuf_from_raw`](super::MemoryPoolRef::mbuf_from_raw) and
+//! [`MbufRing`](super::MbufRing), which wrap that dance in a typed API.
 
 use core::ffi::c_int;
 use core::fmt;
@@ -31,6 +41,13 @@ pub const PACKET_HEADROOM: u16 = ffi::RTE_PKTMBUF_HEADROOM as u16;
 /// `u16::MAX - PACKET_HEADROOM` (65407 bytes with the default 128 byte
 /// headroom).
 pub const MAX_PACKET_SIZE: u16 = u16::MAX - PACKET_HEADROOM;
+
+/// Size of a raw `rte_mbuf *` as stored in an RTE ring.
+///
+/// This is the element size to pass to [`Ring::create_elem`](super::Ring::create_elem)
+/// (or [`Eal::ring`](super::Eal::ring)) when a ring transfers packet ownership
+/// between lcores or processes.
+pub const MBUF_PTR_SIZE: usize = core::mem::size_of::<*mut ffi::rte_mbuf>();
 
 /// A packet buffer checked out of a mempool.
 ///
@@ -83,6 +100,18 @@ impl<'pool> Mbuf<'pool> {
     #[inline]
     pub fn as_ptr(&self) -> NonNull<ffi::rte_mbuf> {
         self.raw
+    }
+
+    /// Mempool that owns this buffer.
+    ///
+    /// This is the same pointer DPDK stores in `rte_mbuf::pool`. A ring
+    /// receiver uses it to check that a received pointer belongs to the pool it
+    /// looked up.
+    #[inline]
+    pub fn pool(&self) -> NonNull<ffi::rte_mempool> {
+        // SAFETY: the view is only constructed while the mbuf is alive, and
+        // every live mbuf has a non-null owning pool.
+        unsafe { NonNull::new_unchecked(self.raw.as_ref().pool) }
     }
 
     /// Total length of the packet, including all segments.

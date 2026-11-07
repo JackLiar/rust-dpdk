@@ -21,7 +21,7 @@ use crate::ffi;
 
 use super::cache::CacheRef;
 use super::eal::Eal;
-use super::error::{errno_from_return, rte_strerror, rte_errno, MempoolError, Result};
+use super::error::{errno_from_return, rte_strerror, rte_errno, MbufError, MempoolError, Result};
 use super::mbuf::Mbuf;
 use super::object::{PoolElement, PoolObject};
 
@@ -715,6 +715,41 @@ impl<'a> MemoryPoolRef<'a> {
 
         // SAFETY: DPDK just handed ownership of the object to us.
         Ok(unsafe { PoolObject::from_parts(self, ptr) })
+    }
+
+    /// Take ownership of a packet buffer received from a ring.
+    ///
+    /// The mbuf is validated against this pool by comparing its `pool` field,
+    /// which keeps a stray pointer from silently stealing an object of another
+    /// pool. On success the returned [`Mbuf`] borrows this pool, so the usual
+    /// lifetime rules apply again.
+    ///
+    /// This is the receive-side counterpart of [`Mbuf::into_raw`]: the sender
+    /// enqueues the raw pointer into an RTE ring, the receiver looks the pool
+    /// up (in a secondary process, with [`Eal::pool`](super::Eal::pool)) and
+    /// hands the dequeued pointer to this method. See [`MbufRing`](super::MbufRing)
+    /// for a typed wrapper around that dance.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must point at a live packet mbuf that was transferred to this
+    /// process, and it must not be owned by any other [`Mbuf`] handle. In a
+    /// multi-process setup, the caller trusts the ring producer to only enqueue
+    /// live mbufs of a shared pool.
+    pub unsafe fn mbuf_from_raw(self, raw: NonNull<ffi::rte_mbuf>) -> Result<Mbuf<'a>, MbufError> {
+        // SAFETY: the caller vouches for `raw` being a live mbuf.
+        let owner = unsafe { raw.as_ref() }.pool;
+
+        if owner != self.raw.as_ptr() {
+            return Err(MbufError::ForeignPool {
+                expected: self.raw.as_ptr() as usize,
+                actual: owner as usize,
+            });
+        }
+
+        // SAFETY: the pointer belongs to this pool and the caller transferred
+        // ownership of it to us.
+        Ok(unsafe { Mbuf::from_raw(raw) })
     }
 
     /// Build the error for a failed packet buffer allocation.

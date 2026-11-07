@@ -33,7 +33,9 @@ use cfile::foreign_types::ForeignType;
 use crate::ffi;
 
 use super::eal::Eal;
-use super::error::{RingError, rte_errno, rte_strerror};
+use super::error::{MbufError, RingError, rte_errno, rte_strerror};
+use super::mbuf::{MBUF_PTR_SIZE, Mbuf};
+use super::mempool::MemoryPoolRef;
 
 /// Longest ring name DPDK accepts, excluding the terminating NUL.
 ///
@@ -1157,5 +1159,172 @@ impl<'a> RingRef<'a> {
 impl fmt::Debug for RingRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.info().fmt(f)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Typed mbuf channel
+// ---------------------------------------------------------------------------
+
+/// A ring that transfers [`Mbuf`] ownership between lcores or processes.
+///
+/// RTE rings store their elements by value and never run destructors, so an
+/// owning [`Mbuf`] cannot be enqueued directly. This wrapper performs the
+/// explicit ownership dance instead:
+///
+/// * [`enqueue`](Self::enqueue) consumes an `Mbuf` and stores its raw pointer,
+/// * [`dequeue`](Self::dequeue) turns a received pointer back into an `Mbuf`
+///   bound to the pool carried by this wrapper, validating the owning pool.
+///
+/// A full ring hands the mbuf back to its pool, so the safe enqueue side never
+/// leaks a packet.
+///
+/// # Cross-process use
+///
+/// The raw pointers are only meaningful when every process maps the shared
+/// mempool at the same virtual address, which is a prerequisite of DPDK
+/// multi-process operation. Create the ring with element size
+/// [`MBUF_PTR_SIZE`] (or `Ring::create::<*mut rte_mbuf>`), then in a secondary
+/// process look the ring and the pool up by name:
+///
+/// ```no_run
+/// # use rte::new::{Eal, MBUF_PTR_SIZE, MbufRing};
+/// # let eal = Eal::init(&["app", "-l", "0", "--no-huge"])?;
+/// let ring = unsafe { eal.ring("p2s", MBUF_PTR_SIZE)? };
+/// let pool = unsafe { eal.pool("packets")? };
+/// let _channel = MbufRing::new(ring, pool)?;
+/// // let mbuf = unsafe { _channel.dequeue()? };
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+#[derive(Clone, Copy)]
+pub struct MbufRing<'a> {
+    ring: RingRef<'a>,
+    pool: MemoryPoolRef<'a>,
+}
+
+impl<'a> MbufRing<'a> {
+    /// Wrap an existing ring of `*mut rte_mbuf` elements and its pool.
+    ///
+    /// Returns [`RingError::ElementSizeMismatch`] when the ring does not store
+    /// pointers.
+    pub fn new(ring: RingRef<'a>, pool: MemoryPoolRef<'a>) -> Result<Self, RingError> {
+        let actual = ring.element_size();
+
+        if actual != MBUF_PTR_SIZE {
+            return Err(RingError::ElementSizeMismatch {
+                expected: actual,
+                actual: MBUF_PTR_SIZE,
+            });
+        }
+
+        Ok(Self { ring, pool })
+    }
+
+    /// The underlying raw ring view.
+    #[inline]
+    pub fn as_ring(self) -> RingRef<'a> {
+        self.ring
+    }
+
+    /// The pool every mbuf on this ring must belong to.
+    #[inline]
+    pub fn pool(self) -> MemoryPoolRef<'a> {
+        self.pool
+    }
+
+    /// Number of usable entries in the ring.
+    #[inline]
+    pub fn capacity(self) -> usize {
+        self.ring.capacity()
+    }
+
+    /// Current number of entries.
+    #[inline]
+    pub fn count(self) -> usize {
+        self.ring.count()
+    }
+
+    /// Whether the ring is empty.
+    #[inline]
+    pub fn is_empty(self) -> bool {
+        self.ring.is_empty()
+    }
+
+    /// Whether the ring is full.
+    #[inline]
+    pub fn is_full(self) -> bool {
+        self.ring.is_full()
+    }
+
+    /// Transfer ownership of `mbuf` into the ring.
+    ///
+    /// On [`RingError::Full`] the buffer is returned to its pool, so no packet
+    /// is leaked. An mbuf owned by a different pool is rejected with
+    /// [`RingError::Mbuf`] and also returned to its own pool.
+    pub fn enqueue(&self, mbuf: Mbuf<'_>) -> Result<(), RingError> {
+        let owner = mbuf.pool();
+
+        if owner != self.pool.as_ptr() {
+            // Dropping `mbuf` returns the buffer to its own pool.
+            return Err(RingError::Mbuf(MbufError::ForeignPool {
+                expected: self.pool.as_ptr().as_ptr() as usize,
+                actual: owner.as_ptr() as usize,
+            }));
+        }
+
+        let raw = mbuf.into_raw();
+
+        match self.ring.enqueue::<*mut ffi::rte_mbuf>(raw.as_ptr()) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                // SAFETY: `raw` came from a live `Mbuf` of this pool; dropping
+                // the reconstructed handle returns it to the pool.
+                drop(unsafe { Mbuf::from_raw(raw) });
+
+                Err(err)
+            }
+        }
+    }
+
+    /// Receive one mbuf from the ring, binding it to this wrapper's pool.
+    ///
+    /// # Safety
+    ///
+    /// Every producer of the ring must only enqueue live `rte_mbuf` pointers
+    /// that belong to [`pool`](Self::pool) (in a secondary process: the shared
+    /// pool looked up by name). A foreign or corrupt pointer is rejected, but
+    /// it is already dereferenced for that check, so the trust decision is the
+    /// caller's.
+    pub unsafe fn dequeue(&self) -> Result<Mbuf<'a>, RingError> {
+        let raw = self.ring.dequeue::<*mut ffi::rte_mbuf>()?;
+
+        let Some(raw) = NonNull::new(raw) else {
+            return Err(RingError::Mbuf(MbufError::ForeignPool {
+                expected: self.pool.as_ptr().as_ptr() as usize,
+                actual: 0,
+            }));
+        };
+
+        // SAFETY: delegated to the caller.
+        match unsafe { self.pool.mbuf_from_raw(raw) } {
+            Ok(mbuf) => Ok(mbuf),
+            Err(err) => {
+                // Give the pointer back so a consumer that owns the pool can
+                // retry. Best effort: a full ring would lose it, but the
+                // producer violated the contract anyway.
+                let _ = self.ring.enqueue::<*mut ffi::rte_mbuf>(raw.as_ptr());
+
+                Err(RingError::Mbuf(err))
+            }
+        }
+    }
+}
+
+impl fmt::Debug for MbufRing<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MbufRing")
+            .field("ring", &self.ring.info())
+            .field("pool", &self.pool.as_ptr())
+            .finish()
     }
 }

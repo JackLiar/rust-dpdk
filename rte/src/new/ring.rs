@@ -34,7 +34,7 @@ use crate::ffi;
 
 use super::eal::Eal;
 use super::error::{MbufError, RingError, rte_errno, rte_strerror};
-use super::mbuf::{MBUF_PTR_SIZE, Mbuf};
+use super::mbuf::{MBUF_PTR_SIZE, Mbuf, MbufRef};
 use super::mempool::MemoryPoolRef;
 
 /// Longest ring name DPDK accepts, excluding the terminating NUL.
@@ -943,6 +943,28 @@ impl<'a> RingRef<'a> {
         Ok(n as usize)
     }
 
+    /// Dequeue one raw mbuf pointer and expose it as a read-only view.
+    ///
+    /// This performs **no pool lookup** and does not validate that the mbuf
+    /// belongs to any particular pool. It is the zero-overhead receive path for
+    /// a secondary process that only needs to read packets.
+    ///
+    /// # Safety
+    ///
+    /// The ring must store `*mut rte_mbuf` elements, and every producer must
+    /// only enqueue live mbuf pointers whose backing pool stays alive. The
+    /// caller must also ensure the mbuf is not mutated or freed while the
+    /// returned view is alive. In a multi-process setup the pointer must be
+    /// valid in this process.
+    pub unsafe fn dequeue_mbuf_ref(self) -> Result<MbufRef<'a>, RingError> {
+        let raw = self.dequeue::<*mut ffi::rte_mbuf>()?;
+
+        let raw = NonNull::new(raw).ok_or(RingError::Mbuf(MbufError::NullPointer))?;
+
+        // SAFETY: the caller vouches for the pointer being a live mbuf.
+        Ok(unsafe { MbufRef::from_raw(raw) })
+    }
+
     /// Enqueue one element using the single-producer path.
     ///
     /// # Safety
@@ -1179,6 +1201,11 @@ impl fmt::Debug for RingRef<'_> {
 /// A full ring hands the mbuf back to its pool, so the safe enqueue side never
 /// leaks a packet.
 ///
+/// For a consumer that only needs to read packets, [`dequeue_ref`](Self::dequeue_ref)
+/// returns an [`MbufRef`] without comparing the pool pointer or looking a pool
+/// up. A completely pool-less consumer can instead use
+/// [`RingRef::dequeue_mbuf_ref`] directly.
+///
 /// # Cross-process use
 ///
 /// The raw pointers are only meaningful when every process maps the shared
@@ -1299,10 +1326,7 @@ impl<'a> MbufRing<'a> {
         let raw = self.ring.dequeue::<*mut ffi::rte_mbuf>()?;
 
         let Some(raw) = NonNull::new(raw) else {
-            return Err(RingError::Mbuf(MbufError::ForeignPool {
-                expected: self.pool.as_ptr().as_ptr() as usize,
-                actual: 0,
-            }));
+            return Err(RingError::Mbuf(MbufError::NullPointer));
         };
 
         // SAFETY: delegated to the caller.
@@ -1317,6 +1341,23 @@ impl<'a> MbufRing<'a> {
                 Err(RingError::Mbuf(err))
             }
         }
+    }
+
+    /// Receive one mbuf as a read-only [`MbufRef`], without pool validation.
+    ///
+    /// This is the zero-lookup counterpart of [`dequeue`](Self::dequeue): it
+    /// does not compare the mbuf's pool pointer and does not require the
+    /// returned view to borrow [`pool`](Self::pool).
+    ///
+    /// # Safety
+    ///
+    /// Every producer of the ring must only enqueue live `rte_mbuf` pointers.
+    /// The caller must also ensure the mbuf is not mutated or freed while the
+    /// returned view is alive. In a multi-process setup the shared pool must be
+    /// mapped at the same address in every process.
+    pub unsafe fn dequeue_ref(&self) -> Result<MbufRef<'a>, RingError> {
+        // SAFETY: delegated to the caller.
+        unsafe { self.ring.dequeue_mbuf_ref() }
     }
 }
 

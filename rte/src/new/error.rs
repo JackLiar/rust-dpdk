@@ -93,6 +93,10 @@ pub enum MbufError {
         nb_segs: u16,
     },
 
+    /// A ring element held a null mbuf pointer.
+    #[error("ring element is a null mbuf pointer")]
+    NullPointer,
+
     /// The mbuf was received from a different mempool than the one expected.
     #[error("mbuf belongs to pool {actual:#x}, not {expected:#x}")]
     ForeignPool {

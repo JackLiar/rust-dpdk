@@ -753,6 +753,103 @@ fn end_to_end() {
         })
     ));
 
+    // ---------------------------------------------------- mbuf read-only views
+
+    assert_copy::<MbufRef<'static>>();
+    assert_send_sync::<MbufRef<'static>>();
+
+    let mut view_packet = mbuf_pool.alloc_mbuf().expect("alloc view packet");
+    view_packet.set_data(b"read only view").expect("fill view packet");
+
+    {
+        let view = view_packet.as_ref();
+        let view_copy = view;
+
+        assert_eq!(view_copy.as_ptr(), view_packet.as_ptr());
+        assert_eq!(view_copy.pkt_len(), b"read only view".len());
+        assert_eq!(view_copy.data_len(), b"read only view".len());
+        assert_eq!(view_copy.data(), b"read only view");
+        assert_eq!(view_copy.port(), view_packet.port());
+        assert_eq!(view_copy.nb_segs(), 1);
+        assert_eq!(view_copy.data_off(), ffi::RTE_PKTMBUF_HEADROOM as u16);
+        assert!(view_copy.buf_len() as usize >= view_copy.data_len());
+        assert_eq!(view_copy.refcnt(), 1);
+        assert_eq!(view_copy.pool(), mbuf_pool.as_ptr());
+        assert!(view_copy.is_contiguous());
+        assert_eq!(view_copy.contiguous_data(), Some(b"read only view".as_slice()));
+        assert_eq!(view_copy.segments().count(), 1);
+        assert_eq!(view_copy.segments().next().expect("segment"), b"read only view");
+        assert_eq!(view_copy.vlan_tci(), None);
+        assert_eq!(view_copy.vlan_tci_outer(), None);
+        assert_eq!(view_copy.rss_hash(), None);
+        assert_eq!(ts.get_ref(view_copy), None);
+
+        let from_ref: MbufRef<'_> = (&view_packet).into();
+        assert_eq!(from_ref.data(), b"read only view");
+    }
+
+    drop(view_packet);
+    assert_eq!(mbuf_pool.available(), 1024);
+
+    // A read-only receive performs no pool lookup at all.
+    let view_ring = Ring::create_elem(&eal, "new_test_mbuf_view_ring", MBUF_PTR_SIZE, 8, RingFlags::empty())
+        .expect("create mbuf view ring");
+
+    let mut pooled_packet = mbuf_pool.alloc_mbuf().expect("alloc view ring packet");
+    pooled_packet
+        .set_data(b"pool-less view")
+        .expect("fill view ring packet");
+    let raw = pooled_packet.into_raw();
+    view_ring
+        .enqueue::<*mut ffi::rte_mbuf>(raw.as_ptr())
+        .expect("enqueue view pointer");
+
+    let view_ptr = {
+        let view = unsafe { view_ring.as_ref().dequeue_mbuf_ref() }.expect("dequeue view");
+        assert_eq!(view.data(), b"pool-less view");
+        assert_eq!(view.pool(), mbuf_pool.as_ptr());
+        view.as_ptr()
+    };
+
+    // The view does not own the buffer; rebuild an owning handle only for test
+    // cleanup so that it returns to its pool.
+    let owned = unsafe { mbuf_pool.as_ref().mbuf_from_raw(view_ptr) }.expect("re-bind view packet");
+    drop(owned);
+    assert_eq!(mbuf_pool.available(), 1024);
+
+    // `MbufRing::dequeue_ref` provides the same read-only path for a channel.
+    let mut channel_packet = mbuf_pool.alloc_mbuf().expect("alloc channel view packet");
+    channel_packet
+        .set_data(b"channel view")
+        .expect("fill channel view packet");
+    mbuf_channel.enqueue(channel_packet).expect("enqueue channel view");
+    let channel_raw = {
+        let channel_view = unsafe { mbuf_channel.dequeue_ref() }.expect("dequeue channel view");
+        assert_eq!(channel_view.data(), b"channel view");
+        channel_view.as_ptr()
+    };
+    drop(unsafe { mbuf_pool.as_ref().mbuf_from_raw(channel_raw) }.expect("re-bind channel view"));
+    assert_eq!(mbuf_pool.available(), 1024);
+
+    // A non-pointer ring is rejected before any view is created.
+    assert!(matches!(
+        unsafe { u32_ring.as_ref().dequeue_mbuf_ref() },
+        Err(RingError::ElementSizeMismatch { .. })
+    ));
+
+    // Null elements are reported as a typed error, not a dangling view.
+    view_ring
+        .enqueue::<*mut ffi::rte_mbuf>(std::ptr::null_mut())
+        .expect("enqueue null pointer");
+    assert!(matches!(
+        unsafe { view_ring.as_ref().dequeue_mbuf_ref() },
+        Err(RingError::Mbuf(MbufError::NullPointer))
+    ));
+    assert!(matches!(
+        unsafe { view_ring.as_ref().dequeue_mbuf_ref() },
+        Err(RingError::Empty { .. })
+    ));
+
     // ------------------------------------------------------------------ TX queue
 
     if Port::available_count() >= 2 {

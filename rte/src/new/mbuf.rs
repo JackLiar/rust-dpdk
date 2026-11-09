@@ -15,6 +15,28 @@
 //! from the looked-up pool — see
 //! [`MemoryPoolRef::mbuf_from_raw`](super::MemoryPoolRef::mbuf_from_raw) and
 //! [`MbufRing`](super::MbufRing), which wrap that dance in a typed API.
+//!
+//! # Read-only views
+//!
+//! [`MbufRef`] is a `Copy` read-only view that does **not** borrow a mempool.
+//! Create one from an owning [`Mbuf`] with [`Mbuf::as_ref`], or, after receiving
+//! a raw pointer from a ring, with the unsafe [`MbufRef::from_raw`]. For a ring
+//! of `*mut rte_mbuf` elements,
+//! [`RingRef::dequeue_mbuf_ref`](super::RingRef::dequeue_mbuf_ref) performs the
+//! receive without an EAL pool lookup:
+//!
+//! ```no_run
+//! # use rte::new::{Eal, MBUF_PTR_SIZE};
+//! # let eal = Eal::init(&["app", "-l", "0", "--no-huge"])?;
+//! let ring = unsafe { eal.ring("packets", MBUF_PTR_SIZE)? };
+//! // No `Eal::pool()` call: the view can read the mbuf directly.
+//! let packet = unsafe { ring.dequeue_mbuf_ref()? };
+//! println!("{} bytes", packet.pkt_len());
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! A view never frees the buffer. If the receiver owns it, either rebuild an
+//! owning [`Mbuf`] through its pool or forward the raw pointer to another ring.
 
 use core::ffi::c_int;
 use core::fmt;
@@ -102,6 +124,18 @@ impl<'pool> Mbuf<'pool> {
         self.raw
     }
 
+    /// Borrow this packet as a read-only, pool-independent view.
+    ///
+    /// The returned [`MbufRef`] cannot free or mutate the buffer and cannot
+    /// outlive this `Mbuf`.
+    #[inline]
+    pub fn as_ref(&self) -> MbufRef<'_> {
+        MbufRef {
+            raw: self.raw,
+            _borrow: PhantomData,
+        }
+    }
+
     /// Mempool that owns this buffer.
     ///
     /// This is the same pointer DPDK stores in `rte_mbuf::pool`. A ring
@@ -109,52 +143,49 @@ impl<'pool> Mbuf<'pool> {
     /// looked up.
     #[inline]
     pub fn pool(&self) -> NonNull<ffi::rte_mempool> {
-        // SAFETY: the view is only constructed while the mbuf is alive, and
-        // every live mbuf has a non-null owning pool.
-        unsafe { NonNull::new_unchecked(self.raw.as_ref().pool) }
+        self.as_ref().pool()
     }
 
     /// Total length of the packet, including all segments.
     #[inline]
     pub fn pkt_len(&self) -> usize {
-        // SAFETY: the view is only constructed while the mbuf is alive.
-        unsafe { self.raw.as_ref() }.pkt_len as usize
+        self.as_ref().pkt_len()
     }
 
     /// Length of this segment's data.
     #[inline]
     pub fn data_len(&self) -> usize {
-        unsafe { self.raw.as_ref() }.data_len as usize
+        self.as_ref().data_len()
     }
 
     /// Offload flags (`PKT_RX_*` / `RTE_MBUF_F_*`) reported by the PMD.
     #[inline]
     pub fn ol_flags(&self) -> u64 {
-        unsafe { self.raw.as_ref() }.ol_flags
+        self.as_ref().ol_flags()
     }
 
     /// Port the packet was received on.
     #[inline]
     pub fn port(&self) -> u16 {
-        unsafe { self.raw.as_ref() }.port
+        self.as_ref().port()
     }
 
     /// Number of segments in the packet.
     #[inline]
     pub fn nb_segs(&self) -> u16 {
-        unsafe { self.raw.as_ref() }.nb_segs
+        self.as_ref().nb_segs()
     }
 
     /// Offset of the packet data inside the mbuf buffer.
     #[inline]
     pub fn data_off(&self) -> u16 {
-        unsafe { self.raw.as_ref() }.data_off
+        self.as_ref().data_off()
     }
 
     /// Size of the mbuf data buffer (including headroom and tailroom).
     #[inline]
     pub fn buf_len(&self) -> u16 {
-        unsafe { self.raw.as_ref() }.buf_len
+        self.as_ref().buf_len()
     }
 
     /// Current reference count.
@@ -164,7 +195,7 @@ impl<'pool> Mbuf<'pool> {
     /// packet.
     #[inline]
     pub fn refcnt(&self) -> u16 {
-        unsafe { ffi::_rte_mbuf_refcnt_read(self.raw.as_ptr()) }
+        self.as_ref().refcnt()
     }
 
     /// First segment of the packet data.
@@ -175,14 +206,7 @@ impl<'pool> Mbuf<'pool> {
     /// segments.
     #[inline]
     pub fn data(&self) -> &[u8] {
-        // SAFETY: the view is only constructed while the mbuf is alive, and
-        // `buf_addr`/`data_off`/`data_len` are maintained by DPDK.
-        unsafe {
-            let mbuf = self.raw.as_ref();
-            let ptr = (mbuf.buf_addr as *const u8).add(mbuf.data_off as usize);
-
-            core::slice::from_raw_parts(ptr, mbuf.data_len as usize)
-        }
+        self.as_ref().data()
     }
 
     /// Whole packet data, but only if it is stored in a single segment.
@@ -192,7 +216,7 @@ impl<'pool> Mbuf<'pool> {
     /// back to a copy.
     #[inline]
     pub fn contiguous_data(&self) -> Option<&[u8]> {
-        if self.is_contiguous() { Some(self.data()) } else { None }
+        self.as_ref().contiguous_data()
     }
 
     /// Replace the packet contents with `data`.
@@ -247,16 +271,13 @@ impl<'pool> Mbuf<'pool> {
     /// Iterate over every segment of the packet.
     #[inline]
     pub fn segments(&self) -> MbufSegments<'_> {
-        MbufSegments {
-            next: Some(unsafe { self.raw.as_ref() }),
-            remaining: unsafe { self.raw.as_ref() }.nb_segs,
-        }
+        self.as_ref().segments()
     }
 
     /// Whether the whole packet is stored in a single contiguous segment.
     #[inline]
     pub fn is_contiguous(&self) -> bool {
-        unsafe { ffi::_rte_pktmbuf_is_contiguous(self.raw.as_ptr()) != 0 }
+        self.as_ref().is_contiguous()
     }
 
     /// Merge a multi-segment packet into its first segment.
@@ -284,7 +305,198 @@ impl<'pool> Mbuf<'pool> {
     /// Hardware-stripped VLAN TCI, if the PMD stripped a VLAN tag.
     #[inline]
     pub fn vlan_tci(&self) -> Option<u16> {
-        // SAFETY: the mbuf is alive for the duration of the borrow.
+        self.as_ref().vlan_tci()
+    }
+
+    /// Hardware-stripped outer VLAN TCI for QinQ packets.
+    #[inline]
+    pub fn vlan_tci_outer(&self) -> Option<u16> {
+        self.as_ref().vlan_tci_outer()
+    }
+
+    /// Hardware RSS hash, if the PMD computed one for this packet.
+    #[inline]
+    pub fn rss_hash(&self) -> Option<u32> {
+        self.as_ref().rss_hash()
+    }
+
+    /// Read a registered `u64` dynamic field.
+    ///
+    /// # Safety
+    ///
+    /// `offset` must be the field offset returned by a
+    /// `rte_mbuf_dyn_*_register()` call, and the field must be `u64` sized.
+    /// Prefer the typed wrappers such as [`RxTimestamp::get`].
+    #[inline]
+    pub unsafe fn read_dynfield_u64(&self, offset: i32) -> u64 {
+        // SAFETY: delegated to the caller.
+        unsafe { self.as_ref().read_dynfield_u64(offset) }
+    }
+
+    /// Give up ownership without returning the buffer to its pool.
+    ///
+    /// Only useful when handing the mbuf to C/C++ code that will free it.
+    #[inline]
+    pub fn into_raw(self) -> NonNull<ffi::rte_mbuf> {
+        let raw = self.raw;
+
+        core::mem::forget(self);
+
+        raw
+    }
+}
+
+/// A read-only, non-owning view of a packet buffer.
+///
+/// Unlike [`Mbuf`], this view does not borrow a mempool. It is `Copy`, has no
+/// `Drop`, and never frees the buffer. Create one safely from an owning
+/// [`Mbuf`] with [`Mbuf::as_ref`], or unsafely from a raw pointer (for example
+/// one dequeued from a ring) with [`MbufRef::from_raw`].
+///
+/// A `MbufRef` only permits reads. Use [`Mbuf`] when the packet must be
+/// modified or returned to its pool.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct MbufRef<'a> {
+    raw: NonNull<ffi::rte_mbuf>,
+    _borrow: PhantomData<&'a ()>,
+}
+
+// SAFETY: the view is read-only and carries no ownership. The unsafe
+// constructors require the caller to keep the mbuf alive and unmodified for
+// the whole borrow, so moving or sharing the view cannot introduce mutation.
+unsafe impl Send for MbufRef<'_> {}
+unsafe impl Sync for MbufRef<'_> {}
+
+impl<'a> MbufRef<'a> {
+    /// Wrap a raw mbuf pointer as a read-only view.
+    ///
+    /// This does not perform any pool lookup: the view only needs the mbuf
+    /// pointer itself.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must point to a live `rte_mbuf` for the whole lifetime `'a`.
+    /// Nobody may free or mutate the mbuf while the view is alive, and the
+    /// mempool backing it must stay alive. In a multi-process setup the pointer
+    /// must be valid in this process.
+    #[inline]
+    pub unsafe fn from_raw(raw: NonNull<ffi::rte_mbuf>) -> Self {
+        Self {
+            raw,
+            _borrow: PhantomData,
+        }
+    }
+
+    /// Raw pointer, for passing to DPDK or forwarding to another ring.
+    #[inline]
+    pub fn as_ptr(self) -> NonNull<ffi::rte_mbuf> {
+        self.raw
+    }
+
+    /// Mempool that owns this buffer.
+    ///
+    /// This returns the raw pointer stored in `rte_mbuf::pool`; no EAL lookup
+    /// is performed.
+    #[inline]
+    pub fn pool(self) -> NonNull<ffi::rte_mempool> {
+        // SAFETY: the view is only constructed while the mbuf is alive, and
+        // every live mbuf has a non-null owning pool.
+        unsafe { NonNull::new_unchecked(self.raw.as_ref().pool) }
+    }
+
+    /// Total length of the packet, including all segments.
+    #[inline]
+    pub fn pkt_len(self) -> usize {
+        // SAFETY: the view is only constructed while the mbuf is alive.
+        unsafe { self.raw.as_ref() }.pkt_len as usize
+    }
+
+    /// Length of this segment's data.
+    #[inline]
+    pub fn data_len(self) -> usize {
+        unsafe { self.raw.as_ref() }.data_len as usize
+    }
+
+    /// Offload flags (`PKT_RX_*` / `RTE_MBUF_F_*`) reported by the PMD.
+    #[inline]
+    pub fn ol_flags(self) -> u64 {
+        unsafe { self.raw.as_ref() }.ol_flags
+    }
+
+    /// Port the packet was received on.
+    #[inline]
+    pub fn port(self) -> u16 {
+        unsafe { self.raw.as_ref() }.port
+    }
+
+    /// Number of segments in the packet.
+    #[inline]
+    pub fn nb_segs(self) -> u16 {
+        unsafe { self.raw.as_ref() }.nb_segs
+    }
+
+    /// Offset of the packet data inside the mbuf buffer.
+    #[inline]
+    pub fn data_off(self) -> u16 {
+        unsafe { self.raw.as_ref() }.data_off
+    }
+
+    /// Size of the mbuf data buffer (including headroom and tailroom).
+    #[inline]
+    pub fn buf_len(self) -> u16 {
+        unsafe { self.raw.as_ref() }.buf_len
+    }
+
+    /// Current reference count.
+    #[inline]
+    pub fn refcnt(self) -> u16 {
+        unsafe { ffi::_rte_mbuf_refcnt_read(self.raw.as_ptr()) }
+    }
+
+    /// First segment of the packet data.
+    ///
+    /// For segmented packets this is only the first segment; use
+    /// [`contiguous_data`](Self::contiguous_data) when the whole packet is
+    /// needed as one slice, or [`segments`](Self::segments) to iterate all
+    /// segments.
+    #[inline]
+    pub fn data(self) -> &'a [u8] {
+        // SAFETY: the view is only constructed while the mbuf is alive, and
+        // `buf_addr`/`data_off`/`data_len` are maintained by DPDK.
+        unsafe {
+            let mbuf = &*self.raw.as_ptr();
+            let ptr = (mbuf.buf_addr as *const u8).add(mbuf.data_off as usize);
+
+            core::slice::from_raw_parts(ptr, mbuf.data_len as usize)
+        }
+    }
+
+    /// Whole packet data, but only if it is stored in a single segment.
+    #[inline]
+    pub fn contiguous_data(self) -> Option<&'a [u8]> {
+        if self.is_contiguous() { Some(self.data()) } else { None }
+    }
+
+    /// Iterate over every segment of the packet.
+    #[inline]
+    pub fn segments(self) -> MbufSegments<'a> {
+        MbufSegments {
+            next: Some(unsafe { &*self.raw.as_ptr() }),
+            remaining: unsafe { self.raw.as_ref() }.nb_segs,
+        }
+    }
+
+    /// Whether the whole packet is stored in a single contiguous segment.
+    #[inline]
+    pub fn is_contiguous(self) -> bool {
+        unsafe { ffi::_rte_pktmbuf_is_contiguous(self.raw.as_ptr()) != 0 }
+    }
+
+    /// Hardware-stripped VLAN TCI, if the PMD stripped a VLAN tag.
+    #[inline]
+    pub fn vlan_tci(self) -> Option<u16> {
+        // SAFETY: the view is only constructed while the mbuf is alive.
         unsafe {
             let mbuf = self.raw.as_ref();
 
@@ -298,8 +510,8 @@ impl<'pool> Mbuf<'pool> {
 
     /// Hardware-stripped outer VLAN TCI for QinQ packets.
     #[inline]
-    pub fn vlan_tci_outer(&self) -> Option<u16> {
-        // SAFETY: the mbuf is alive for the duration of the borrow.
+    pub fn vlan_tci_outer(self) -> Option<u16> {
+        // SAFETY: the view is only constructed while the mbuf is alive.
         unsafe {
             let mbuf = self.raw.as_ref();
 
@@ -313,8 +525,8 @@ impl<'pool> Mbuf<'pool> {
 
     /// Hardware RSS hash, if the PMD computed one for this packet.
     #[inline]
-    pub fn rss_hash(&self) -> Option<u32> {
-        // SAFETY: the mbuf is alive for the duration of the borrow; the RSS
+    pub fn rss_hash(self) -> Option<u32> {
+        // SAFETY: the view is only constructed while the mbuf is alive; the RSS
         // union member is only read when the matching offload flag is set.
         unsafe {
             let mbuf = self.raw.as_ref();
@@ -333,9 +545,9 @@ impl<'pool> Mbuf<'pool> {
     ///
     /// `offset` must be the field offset returned by a
     /// `rte_mbuf_dyn_*_register()` call, and the field must be `u64` sized.
-    /// Prefer the typed wrappers such as [`RxTimestamp::get`].
+    /// Prefer the typed wrappers such as [`RxTimestamp::get_ref`].
     #[inline]
-    pub unsafe fn read_dynfield_u64(&self, offset: i32) -> u64 {
+    pub unsafe fn read_dynfield_u64(self, offset: i32) -> u64 {
         // SAFETY: the caller vouches for `offset`; DPDK guarantees the field
         // lives inside every mbuf of the pool.
         unsafe {
@@ -344,17 +556,24 @@ impl<'pool> Mbuf<'pool> {
             (base.offset(offset as isize) as *const u64).read_unaligned()
         }
     }
+}
 
-    /// Give up ownership without returning the buffer to its pool.
-    ///
-    /// Only useful when handing the mbuf to C/C++ code that will free it.
+impl<'a, 'pool> From<&'a Mbuf<'pool>> for MbufRef<'a> {
     #[inline]
-    pub fn into_raw(self) -> NonNull<ffi::rte_mbuf> {
-        let raw = self.raw;
+    fn from(mbuf: &'a Mbuf<'pool>) -> Self {
+        mbuf.as_ref()
+    }
+}
 
-        core::mem::forget(self);
-
-        raw
+impl fmt::Debug for MbufRef<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MbufRef")
+            .field("pkt_len", &self.pkt_len())
+            .field("data_len", &self.data_len())
+            .field("nb_segs", &self.nb_segs())
+            .field("port", &self.port())
+            .field("ol_flags", &format_args!("{:#x}", self.ol_flags()))
+            .finish()
     }
 }
 
@@ -376,7 +595,7 @@ impl Clone for Mbuf<'_> {
     }
 }
 
-/// Iterator over the segments of a [`Mbuf`].
+/// Iterator over the segments of a [`Mbuf`] or [`MbufRef`].
 pub struct MbufSegments<'a> {
     next: Option<&'a ffi::rte_mbuf>,
     remaining: u16,
@@ -486,6 +705,15 @@ impl RxTimestamp {
     /// Hardware timestamp of `packet`, or `None` if the PMD did not stamp it.
     #[inline]
     pub fn get(self, packet: &Mbuf<'_>) -> Option<u64> {
+        self.get_ref(packet.as_ref())
+    }
+
+    /// Hardware timestamp of a read-only packet view.
+    ///
+    /// This is the pool-independent form of [`get`](Self::get); it is useful
+    /// for a secondary process that received an [`MbufRef`] from a ring.
+    #[inline]
+    pub fn get_ref(self, packet: MbufRef<'_>) -> Option<u64> {
         if packet.ol_flags() & self.flag == 0 {
             return None;
         }

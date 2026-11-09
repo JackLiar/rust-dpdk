@@ -33,6 +33,7 @@
 //! | port ownership | [`Port`] | `Drop` stops and closes the port |
 //! | queue borrow | [`RxQueue<'port, 'pool>`] / [`TxQueue<'port>`] | borrows the port; RX also borrows its pool |
 //! | packet borrow | [`Mbuf<'pool>`] | `Drop` calls `rte_pktmbuf_free`, borrows the backing pool |
+//! | packet read view | [`MbufRef<'a>`] | `Copy`, no `Drop`, no pool borrow, read-only |
 //! | lcore tasks | [`LcoreScope`] | waits for every launched task before it is dropped |
 //! | bus borrow | [`Bus<'a>`] / [`BusDevice<'a>`] | `Copy`, no `Drop`, cannot unregister a bus or free a device |
 //!
@@ -74,6 +75,9 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
+//! For read-only packet consumers, [`RingRef::dequeue_mbuf_ref`] returns an
+//! [`MbufRef`] without an EAL pool lookup.
+//!
 //! ## Deliberate omissions
 //!
 //! * No `Deref<Target = rte_mempool>`: the C struct layout is never exposed to
@@ -113,7 +117,7 @@ pub use ethdev::{
 };
 pub use lcore::{LcoreExit, LcoreId, LcoreScope};
 pub use mbuf::{
-    DEFAULT_DATA_ROOM_SIZE, MAX_PACKET_SIZE, MBUF_PTR_SIZE, Mbuf, MbufSegments, PACKET_HEADROOM, RxTimestamp,
+    DEFAULT_DATA_ROOM_SIZE, MAX_PACKET_SIZE, MBUF_PTR_SIZE, Mbuf, MbufRef, MbufSegments, PACKET_HEADROOM, RxTimestamp,
 };
 pub use mempool::{Builder, MEMPOOL_NAMESIZE, MemoryPool, MemoryPoolFlags, MemoryPoolRef, PoolInfo};
 pub use object::{PoolElement, PoolObject};
